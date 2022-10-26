@@ -118,7 +118,7 @@ RUN pip3 install km-walk \
 
 # Annovar 2017-07-17
 WORKDIR $software/source
-RUN git clone http://github.com/yqyuhao/righton_service.git && cd MCD && unzip annovar_2017-07-17.zip && cd annovar && cp *.pl $software/bin
+RUN git clone http://github.com/yqyuhao/righton_service.git && cd righton_service && unzip annovar_2017-07-17.zip && cd annovar && cp *.pl $software/bin
 
 # IGVtools v2.15.1
 WORKDIR $software/source
@@ -127,45 +127,25 @@ RUN wget https://data.broadinstitute.org/igv/projects/downloads/2.15/IGV_2.15.1.
 
 # bcftools v1.8
 WORKDIR $software/source
-RUN wget https://github.com/samtools/bcftools/archive/refs/tags/1.8.tar.gz -O $software/source/bcftools-v1.8.tar.gz \
-&& tar -zxvf $software/source/bcftools-v1.8.tar.gz \
-&& cd $software/source/bcftools-1.8 && make \
+RUN wget https://github.com/samtools/bcftools/releases/download/1.8/bcftools-1.8.tar.bz2 -O $software/source/bcftools-1.8.tar.bz2 \
+&& tar xjvf $software/source/bcftools-1.8.tar.bz2 \
+&& cd $software/source/bcftools-1.8 && ./configure && make \
 && ln -s $software/source/bcftools-1.8/bcftools $software/bin/bcftools
 
-# delly v1.1.3
+# delly v0.8.7
 WORKDIR $software/source
-RUN apt-get install -y \
-    autoconf \
-    build-essential \
-    cmake \
-    g++ \
-    gfortran \
-    git \
-    libcurl4-gnutls-dev \
-    hdf5-tools \
-    libboost-date-time-dev \
-    libboost-program-options-dev \
-    libboost-system-dev \
-    libboost-filesystem-dev \
-    libboost-iostreams-dev \
-    libbz2-dev \
-    libhdf5-dev \
-    libncurses-dev \
-    liblzma-dev \
-    zlib1g-dev
+RUN wget https://github.com/dellytools/delly/releases/download/v0.8.7/delly_v0.8.7_linux_x86_64bit -O $software/source/delly \
+&& chmod 755 $software/source/delly \
+&& ln -s $software/source/delly $software/bin/delly
 
-RUN wget https://github.com/dellytools/delly/archive/refs/tags/v0.8.7.tar.gz -O $software/source/delly-v0.8.7.tar.gz \
-&& tar -zxvf $software/source/delly-v0.8.7.tar.gz \
-&& cd $software/source/delly-0.8.7 && make STATIC=1 all \
-&& ln -s $software/source/delly-0.8.7/delly $software/bin/delly
+# msisensor_pro
+WORKDIR $software/source
+RUN git clone https://github.com/xjtu-omics/msisensor-pro.git \
+&& ln -s $software/source/msisensor-pro $software/bin/msisensor-pro
 
 # copy capture esssential files
 WORKDIR $software/source
-RUN cd MCD && cp fastq2stat.pl capture_analysis_auto capture_filter_auto capture_filter_auto_wes drug_split msisensor_pro tmb_filter $software/bin/
-
-# copy pcr esssential files
-WORKDIR $software/source
-RUN cd MCD && cp PCR_analysis pcr_filter_auto drug_split msisensor_pro tmb_filter $software/bin/
+RUN git clone http://github.com/yqyuhao/righton_service.git && cd righton_service && cp fastq2stat.pl capture_analysis_auto capture_filter_auto capture_filter_auto_wes drug_split msisensor_pro tmb_filter PCR_analysis pcr_filter_auto drug_split msisensor_pro tmb_filter unique_panel.R $software/bin/
 
 # install essential packages
 WORKDIR $software/source

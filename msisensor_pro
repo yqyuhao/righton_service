@@ -20,7 +20,7 @@ $0 -f config.csv -i inputdir
 	Help:
 		-h                       Show this help.
 
-    Analysis Programs Created by wanhuihui  v2020-07-14
+    Analysis Programs Created by yqyuhao v2022-10-01
 END
 exit 1
 }
