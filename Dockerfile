@@ -143,9 +143,9 @@ WORKDIR $software/source
 RUN git clone https://github.com/xjtu-omics/msisensor-pro.git \
 && ln -s $software/source/msisensor-pro $software/bin/msisensor-pro
 
-# copy capture esssential files
+# copy esssential files
 WORKDIR $software/source
-RUN git clone http://github.com/yqyuhao/righton_service.git && cd righton_service && cp fastq2stat.pl capture_analysis_auto capture_filter_auto capture_filter_auto_wes drug_split msisensor_pro tmb_filter PCR_analysis pcr_filter_auto drug_split msisensor_pro tmb_filter unique_panel.R $software/bin/
+RUN cd righton_service && cp fastq2stat.pl capture_analysis_auto capture_filter_auto capture_filter_auto_wes drug_split msisensor_pro tmb_filter PCR_analysis_auto pcr_filter_auto drug_split msisensor_pro tmb_filter unique_panel.R $software/bin/
 
 # install essential packages
 WORKDIR $software/source
