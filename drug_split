@@ -1,0 +1,132 @@
+#!/bin/bash
+set +x
+function echo_usage()
+{
+cat<<END
+Usage:
+`basename $0` -f config.csv -i input_dir
+
+	Input:
+		-f config.csv            config file.
+		-i input_dir			 input dir
+
+	Help:
+		-h                          Show this help.
+        
+    Analysis Programs Created by wanhuihui  v2021-03-18
+END
+exit 0
+}
+[ $# -eq 0 ] && echo_usage
+while getopts "f:i:hv" arg
+do
+        case $arg in
+	    f)
+		config=$OPTARG
+		config=$(readlink -f $config)
+		;;
+		i)
+			path=$OPTARG
+			path=$(readlink -f $path)
+			if [ "$path" == "" -o ! -e "$path" ];then
+				echo Cannot find input path.
+				exit 1
+			fi
+		;;
+	    h)
+		echo_usage
+		exit 0
+		;;
+		v)
+		echo v2021-03-18
+		exit 0
+		;;
+        ?)
+		echo "unknow argument"
+		echo_usage
+		exit 0
+		;;
+        esac
+done
+
+# define the environment software
+Righton=/Righton_software
+bin_dir=$Righton/bin
+rscript=/usr/bin/Rscript
+igvtools=$bin_dir/IGVTools/igvtools
+target_dir=$Righton/target
+target=$target_dir/Righton_Drug_Site_hg19.database
+fasta=$database_dir/GATK_hg19/ucsc.hg19.fasta
+drug_output=$path/drug_output
+temp=$path/drug_output/temp
+dos2unix $config
+cat $config | while read a
+do 
+	name=`echo $a|cut -d "," -f1`
+	bed=`echo $a|cut -d "," -f2`
+	#if [[ $bed == "A067V1-20200610.amp.bed" ]]; then
+	mkdir -p $temp
+	> $temp/${name}.wig.xls
+	if [[ -f ${path}/${name}/${name}.ready.bam ]]; then
+		bam=${path}/${name}/${name}.ready.bam
+	elif [[ -f ${path}/${name}/${name}.realigned.bam ]]; then
+		bam=${path}/${name}/${name}.realigned.bam
+	fi
+	less $target | while read b
+	do
+		chr=`echo $b | cut -d " " -f1`
+		pos=`echo $b | cut -d " " -f3`
+		rs=`echo $b | cut -d " " -f4`
+		sig=`echo $b | cut -d " " -f5`
+		${igvtools} count -w 1 --bases --query ${chr}:${pos}-${pos} $bam ${temp}/${name}.${rs}.wig ${fasta}
+		row_wig=`less ${temp}/${name}.${rs}.wig | wc -l`
+		if [[ $row_wig -eq 4 ]]; then
+			A=`less ${temp}/${name}.${rs}.wig | sed -n 4p | cut -f2`
+			C=`less ${temp}/${name}.${rs}.wig | sed -n 4p | cut -f3`
+			G=`less ${temp}/${name}.${rs}.wig | sed -n 4p | cut -f4`
+			T=`less ${temp}/${name}.${rs}.wig | sed -n 4p | cut -f5`
+			DEL=`less ${temp}/${name}.${rs}.wig | sed -n 4p | cut -f7`
+			INS=`less ${temp}/${name}.${rs}.wig | sed -n 4p | cut -f8`
+			total=`echo ${A} ${C} ${G} ${T} ${DEL} | awk '{printf("%0.0f\n",$1+$2+$3+$4+$5)}'`
+			first=`echo -ne "A\t${A}\nC\t${C}\nG\t${G}\nT\t${T}\nDEL\t${DEL}" | sort -nr -k 2 | sed -n 1p`
+			second=`echo -ne "A\t${A}\nC\t${C}\nG\t${G}\nT\t${T}\nDEL\t${DEL}" | sort -nr -k 2 | sed -n 2p`
+			first_tag=`echo $first | cut -d " " -f1`
+			first_num=`echo $first | cut -d " " -f2`
+			second_tag=`echo $second | cut -d " " -f1`
+			second_num=`echo $second | cut -d " " -f2`
+			first_vaf=`echo $first_num $total | awk '{printf("%0.3f\n",$1/$2)}'`
+			if [[ $rs == "rs8175347" ]]; then
+				ins_vaf=`echo $INS $total | awk '{printf("%0.3f\n",$1/$2)}'`
+				if [[ `echo "${ins_vaf}>=0.66" | bc` -eq 1 ]]; then
+					add_tag=7/7TA
+				elif [[ `echo "${ins_vaf}<0.33" | bc` -eq 1 ]]; then
+					add_tag=6/6TA
+				else
+					add_tag=6/7TA
+				fi
+			elif [[ $rs == "rs151264360" ]]; then
+				del_vaf=`echo $DEL $total | awk '{printf("%0.3f\n",$1/$2)}'`
+				if [[ `echo "${del_vaf}>=0.8" | bc` -eq 1 ]]; then
+					add_tag=-6/-6
+				elif [[ `echo "${del_vaf}<0.2" | bc` -eq 1 ]]; then
+					add_tag=+6/+6
+				else
+					add_tag=+6/-6
+				fi
+			else
+				if [[ `echo "${first_vaf}>=0.85" | bc` -eq 1 ]]; then
+					add_tag=$first_tag/$first_tag
+				else
+					add_tag=`echo $first_tag $second_tag | awk '{if($1<$2){print $1"/"$2} else {print $2"/"$1}}'`
+				fi
+			fi
+			less ${temp}/${name}.${rs}.wig | awk -v sig=$sig -v add_tag=$add_tag -v chr=$chr 'BEGIN {FS="\t";OFS="\t"} {if(NR==4){print add_tag,sig,chr,$0}}' >> $temp/${name}.wig.xls
+		fi
+	done
+	#row_xls=`less $temp/${name}.wig.xls | wc -l`
+	#if [[ $row_xls -gt 0 ]]; then
+		\cp $temp/${name}.wig.xls $drug_output
+	#fi
+	#fi
+done
+rm -rf ${temp}

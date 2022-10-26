@@ -1,0 +1,116 @@
+#!/bin/bash
+set +x
+
+#使用方法
+function echo_usage()
+{
+cat<<END
+Usage:
+$0 -f config.csv -i inputdir
+
+	Input:
+		-f config.csv            config file
+    
+	Config File Format: ( comma-split )
+        #SampleName   #Classfication  #this header not in config file
+        Sample1       Target
+        Sample2       Target
+        Sample3       Target
+	
+	Help:
+		-h                       Show this help.
+
+    Analysis Programs Created by wanhuihui  v2020-07-14
+END
+exit 1
+}
+
+#主函数
+function msisensor_pro-hg19()
+{
+	n_row=$1
+	n_file=`cat ${config} | sed -n ${n_row}p | awk -F ',' '{print $1}'`
+	bed=`cat ${config} | sed -n ${n_row}p | awk -F ',' '{print $2}'`
+	if [[ -f $msi_ref/${bed}_reference.list_baseline ]]; then
+		ref=$msi_ref/${bed}_reference.list_baseline
+	else
+		ref=$msi_ref/reference.list
+	fi
+	$msisensor_pro pro -d $ref -t ${nowpath}/${n_file}/${n_file}.ready.bam -e $target_dir/$bed -c 100 -i 0.1 -o ${msi_output}/${n_file}
+	msi_score=`cat ${msi_output}/${n_file} | sed -n 2p | awk '{print $3}'`
+	if [[ `echo "${msi_score}>=20" | bc` -eq 1  ]]; then
+		#大于20%为MSI,反之为MSS
+		status=MSI
+	else
+		status=MSS
+	fi
+	echo -ne ${n_file}','${msi_score}%','20%','${status}'\n' >> ${msi_all}
+	echo -ne sample'\t'msi_score'\t'threshold'\t'status'\n' > ${msi_output}/${n_file}.MSI.xls
+	echo -ne ${n_file}'\t'${msi_score}%'\t'20%'\t'${status}'\n' >> ${msi_output}/${n_file}.MSI.xls
+}
+
+# 处理参数
+while getopts "f:i:h" arg
+do
+	case $arg in
+		f)
+			config=$OPTARG    # config为config.csv的完整路径
+		  	config=$(readlink -f $config)     # readlink为获得$config对应文件的绝对路径
+		  	if [ "$config" == "" -o ! -e "$config" ];then     # $config为空字符串或者不存在这个文件/目录
+				echo Cannot find config file.
+				exit 1
+		  	fi
+		;;
+		i)
+			nowpath=$OPTARG
+			nowpath=$(readlink -f $nowpath)
+			if [ "$nowpath" == "" -o ! -e "$nowpath" ];then
+				echo Cannot find input path.
+				exit 1
+			fi
+		;;
+		h)
+			echo_usage
+		;;
+		*)
+			echo "unknow argument"
+    		echo_usage
+		;;
+	esac
+done
+if [[ $# -eq 0 ]] ;then
+    echo_usage                                         #当没有传入参数显示help信息
+fi
+
+# define the directory
+Righton=/Righton_software
+bin_dir=$Righton/bin
+target_dir=$Righton/target
+database_dir=$Righton/database
+
+msisensor_pro=$bin_dir/msisensor-pro/binary/msisensor-pro
+msi_ref=$database_dir/ref/msi_ref
+msi_output=${nowpath}/msi_output-hg19
+msi_all=${msi_output}/msi_all.csv
+
+
+#程序执行
+if [[ ! -d ${msi_output} ]]; then
+		mkdir ${msi_output}
+fi
+echo -ne sample','msi_score','threshold','status'\n' > ${msi_all}
+k=0
+for row in $(seq 1 `sed -n '$=' ${config}`)
+do
+	if [ $k -lt 10 ];then
+		msisensor_pro-hg19 $row &    # 传入参数样本所在行数
+	fi
+	k=`expr $k + 1`
+	if [ $k -gt 10 ];then
+		wait
+		k=0
+		msisensor_pro-hg19 $row &
+		k=`expr $k + 1`
+	fi
+done
+wait

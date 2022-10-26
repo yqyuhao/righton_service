@@ -1,0 +1,1334 @@
+#!/bin/bash
+set +x
+#init
+######################
+
+#使用方法
+function echo_usage()
+{
+cat<<END
+Usage:
+hostspot_rescue -f config.csv -i input_dir
+
+	Input:
+		-f config.csv            config file
+		-i input_dir			 input dir
+		-t [NoVaSeq|MiniSeq|NextSeq|MiSeq]
+    
+	Config File Format: ( comma-split )
+        #SampleName   #Classfication  #this header not in config file
+        Sample1       Target
+        Sample2       Target
+        Sample3       Target
+	
+	Help:
+		-h                       Show this help.
+
+    Analysis Programs Created by yqyuhao  v2022-10-01
+END
+exit 1
+}
+
+#delete执行删除
+function delete_spot()
+{
+	n_del=$1
+	bed_n=$2
+	igvtools_result=$igvtools_result_all/$bed_n
+	vaf_unsort=${vaf_sort_temp}/${bed_n}/vaf_unsort
+	vaf_sort=${vaf_sort_temp}/${bed_n}/vaf_sort
+	vaf_del=${vaf_sort_temp}/${bed_n}/vaf_del
+	if [[ -f ${vaf_unsort} ]]; then
+		: > ${vaf_unsort}
+	fi
+	echo now:${n_del},all:`sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`
+	#1chr 2start 3end 4ref 5alt 6panel 7adapter
+   	del_chr_pos=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $1}'`
+	del_start=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $2}'`
+	del_end=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $3}'`
+	del_ref=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $4}'`
+	del_alt=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $5}'`
+	del_adapter=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $7}'`
+	OLD_IFS="$IFS" 
+	IFS=";" 
+	arr=(${del_adapter}) 
+	IFS="$OLD_IFS" 
+	count=${#arr[*]}
+	cutoff=0
+	if [[ ${count} -gt 2 ]] && [[ ${count} -le 4 ]]; then
+		#statements
+		count_cutoff=1
+		cutoff=`echo ${count_cutoff} ${count} | awk '{printf("%0.6f\n",$1/$2)}'`
+	elif [[ ${count} -gt 4 ]] && [[ ${count} -le 7 ]]; then
+		#statements
+		count_cutoff=2
+		cutoff=`echo ${count_cutoff} ${count} | awk '{printf("%0.6f\n",$1/$2)}'`
+	elif [[ ${count} -gt 7 ]] && [[ ${count} -le 9 ]]; then
+		#statements
+		count_cutoff=3
+		cutoff=`echo ${count_cutoff} ${count} | awk '{printf("%0.6f\n",$1/$2)}'`
+	elif [[ ${count} -gt 9 ]]; then
+		#statements
+		cutoff=0.300000
+	fi
+	echo cutoff:${cutoff}
+	declare -A dic
+	dic=()
+	if [[ `expr ${cutoff} \> 0` == 1 ]]; then
+		for n_adapter in ${arr[@]}
+		do
+			if [[ ${del_alt} == '-' ]] || [[ ${del_ref} == '-' ]]; then
+				declare -A dic1
+				dic1=()
+				del_start=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $2}'`
+				for (( i = -1; i < 2; i++ )); do
+					del_start1=`expr ${del_start} + ${i}`
+					${igvtools} count -w 1 --bases --query ${del_chr_pos}:${del_start1}-${del_start1} ${bam_file}/${n_adapter}.ready.bam ${igvtools_result}/${n_adapter}.wig ${fasta}
+					if [[ `cat ${igvtools_result}/${n_adapter}.wig | wc -l` -eq 4 ]]; then
+						A=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $2}'`
+						C=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $3}'`
+						G=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $4}'`
+						T=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $5}'`
+						N=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $6}'`
+						DEL=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $7}'`
+						INS=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $8}'`
+						if [[ ${del_alt} == '-' ]]; then
+							#statements
+							vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$6/($1+$2+$3+$4+$5+$6))}'`
+						fi
+						if [[ ${del_ref} == '-' ]]; then
+							#statements
+							vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$7/($1+$2+$3+$4+$5+$6))}'`
+						fi
+						dic1[${del_start1}]=${vaf}		
+					fi				
+				done
+				max=0
+				for key in $(echo ${!dic1[*]}) 
+				do 
+					array_num=${dic1[$key]}
+					echo $key:$array_num  
+					if [[ `expr ${array_num} \> ${max}` -eq 1 ]]; then
+						max=$array_num
+						del_start=$key
+					fi
+				done
+			fi
+			${igvtools} count -w 1 --bases --query ${del_chr_pos}:${del_start}-${del_start} ${bam_file}/${n_adapter}.ready.bam ${igvtools_result}/${n_adapter}.wig ${fasta}
+			if [[ `cat ${igvtools_result}/${n_adapter}.wig | wc -l` -eq 4 ]]; then
+				#statements
+				A=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $2}'`
+				C=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $3}'`
+				G=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $4}'`
+				T=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $5}'`
+				N=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $6}'`
+				DEL=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $7}'`
+				INS=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $8}'`		
+				if [[ ${del_alt} == '-' ]]; then
+					#alt为-
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$6/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} != '-' ]] && [[ ${del_alt} == 'A' ]]; then
+					#alt为A
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$1/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} != '-' ]] && [[ ${del_alt} == 'C' ]]; then
+					#alt为C
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$2/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} != '-' ]] && [[ ${del_alt} == 'G' ]]; then
+					#alt为G
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$3/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} != '-' ]] && [[ ${del_alt} == 'T' ]]; then
+					#alt为T
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$4/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} == '-' ]]; then
+					#ref为-
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$7/($1+$2+$3+$4+$5+$6))}'`
+				fi
+				depth=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.0f\n",$1+$2+$3+$4+$5+$6)}'`
+				dic[${n_adapter}]=${vaf}:${depth}
+			fi
+		done
+		del_start=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $2}'`
+		for key in $(echo ${!dic[*]})
+		do
+		    echo "$key:${dic[$key]}"
+		done >> ${vaf_unsort}
+		sort -n -k 2 -t : ${vaf_unsort} > ${vaf_sort}
+		cat -n ${vaf_sort}
+		sort_row=`less $vaf_sort | wc -l`
+		if [[ ${sort_row} -gt 0 ]]; then
+			v1=`less $vaf_sort | awk 'BEGIN {FS=":";OFS=":"} {if($2<0.01) {print $0}}'|wc -l`
+			v2=`less $vaf_sort | awk 'BEGIN {FS=":";OFS=":"} {if($2>=0.01) {print $0}}'|wc -l`
+			v2_bili=`echo $v1 $v2|awk '{printf("%0.6f\n",$2/($1+$2))}'`
+		else
+			echo $n_del sortfile is 0
+		fi
+		v2_v1=-1
+		if [[ `expr ${v2_bili} \<= ${cutoff}` -eq 1 ]] && [[ ${v1} -gt 0 ]] && [[ ${v2} -gt 0 ]] && [[ ${sort_row} -gt 0 ]]; then
+			v1_max=`less ${vaf_sort} | sed -n ${v1}p | awk -F':' '{print $2}'`
+			v2_min_row=`expr ${v1} + 1`
+			v2_min=`less ${vaf_sort} | sed -n ${v2_min_row}p | awk -F':' '{print $2}'`
+			v2_v1=`echo $v1_max $v2_min | awk '{printf("%0.6f\n",$2-$1)}'`
+		fi
+		if [[ `echo "${v2_v1}>=0.005" | bc` -eq 1 ]]; then	
+			echo [v2_bili:${v2_bili},v2:${v2},v1+v2:`expr ${v1} + ${v2}`][cutoff:${cutoff}]
+			cat $vaf_sort | sed -n 1,${v1}p > ${vaf_del}		
+		elif [[ ${sort_row} -gt 0 ]] && [[ ${v1} -eq ${sort_row} ]]; then
+			cat $vaf_sort | sed -n 1,${sort_row}p > ${vaf_del}
+		else
+			mutation_cut=0
+			mutation_proportion=1
+			row_vaf_sort=`less ${vaf_sort} | wc -l`
+			max_vaf=`less ${vaf_sort} | sed -n ${row_vaf_sort}p | awk -F':' '{print $2}'`
+			if [[ `expr ${max_vaf} \<= 0.02` -eq 1 ]]; then
+				#statements
+				cut_two=0.01
+			elif [[ `expr ${max_vaf} \> 0.02` -eq 1 ]] && [[ `expr ${max_vaf} \<= 0.05` -eq 1 ]]; then
+				#statements
+				cut_two=0.03
+			elif [[ `expr ${max_vaf} \> 0.05` -eq 1 ]] && [[ `expr ${max_vaf} \<= 0.1` -eq 1 ]]; then
+				#statements
+				cut_two=0.05
+			elif [[ `expr ${max_vaf} \> 0.1` -eq 1 ]] && [[ `expr ${max_vaf} \<= 0.2` -eq 1 ]]; then
+				#statements
+				cut_two=0.08
+			elif [[ `expr ${max_vaf} \> 0.2` -eq 1 ]]; then
+				#statements
+				cut_two=0.18
+			fi
+			for key in $(seq 1 `sed -n '$=' ${vaf_sort}`)
+			do
+				vaf_value=`less ${vaf_sort} | sed -n ${key}p | awk -F':' '{print $2}'`
+				adapter_value=`less ${vaf_sort} | sed -n ${key}p | awk -F':' '{print $1}'`
+				if [[ ${key} -ne `sed -n '$=' ${vaf_sort}` ]]; then
+					#statements
+					key1=`expr ${key} + 1`
+					vaf_value1=`less ${vaf_sort} | sed -n ${key1}p | awk -F':' '{print $2}'`
+					adapter_value1=`less ${vaf_sort} | sed -n ${key1}p | awk -F':' '{print $1}'`
+					dif=`echo ${vaf_value} ${vaf_value1} | awk '{printf("%0.6f\n",$2-$1)}'`
+					if [[ `echo "${dif}>=${cut_two}" | bc` -eq 1 ]]; then
+						#statements
+						mutation_cut=${key}
+						echo now:${n_del},all:`sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`
+						echo "$key:$adapter_value:$vaf_value"
+						echo "$key1:$adapter_value1:$vaf_value1"
+						break
+					fi
+				else
+					echo now:${n_del},all:`sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`
+					echo not find diff greater than ${cut_two}
+				fi
+			done
+			if [[ ${mutation_cut} -gt 0 ]]; then
+				#statements
+				all_adapter=`sed -n '$=' ${vaf_sort}`
+				mutation_proportion=`echo ${all_adapter} ${mutation_cut} | awk '{printf("%0.6f\n",($1-$2)/$1)}'`
+				if [[ `echo "${mutation_proportion}>${cutoff}" | bc` -eq 1 ]]; then
+				#statements
+					cat $vaf_sort > ${vaf_del}
+				else
+					cat $vaf_sort | sed -n 1,${mutation_cut}p > ${vaf_del}	
+				fi
+			else
+				cat $vaf_sort > ${vaf_del}
+			fi
+		fi
+		del_row=()
+		del_array=()
+		i=0
+		for n_adapter in `cat ${vaf_del} | awk -F':' '{print $1}'`
+		do 	
+			database=${round_dir}/${n_adapter}.round.xls
+			find1=`echo -ne "$del_chr_pos\t$del_start\t$del_end\t$del_ref\t$del_alt\t"|xargs -i grep -n {} ${database}| awk -F ':' '{print $1}'`
+			if [[ -n $find1 ]]; then
+				del_row[i]=${find1}
+				del_array[i]=${database}
+				i=`expr ${i} + 1`
+			fi
+		done
+		echo now:${n_del},all:`sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`
+		echo need delete:
+		for(( ndel=0; ndel<${#del_array[*]} ;ndel++ ))
+		do 
+			echo ${del_array[ndel]}:${del_row[ndel]}d
+			sed -i ${del_row[ndel]}d ${del_array[ndel]}
+		done 
+	fi
+}
+function delete_spot_add()
+{
+	n_del=$1
+	bed_n=$2
+	if [[ $bed_n == "A067V2-primer.bed.right.bed" ]]; then
+		bed_n1=A067V1-20200610.amp.bed
+	else
+		bed_n1=$bed_n
+	fi
+	igvtools_result=$igvtools_result_all/$bed_n
+	vaf_unsort=${vaf_sort_temp}/${bed_n}/vaf_unsort
+	vaf_sort=${vaf_sort_temp}/${bed_n}/vaf_sort
+	vaf_del=${vaf_sort_temp}/${bed_n}/vaf_del
+	if [[ -f ${vaf_unsort} ]]; then
+		: > ${vaf_unsort}
+	fi
+	echo now:${n_del},all:`sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`
+	#1chr 2start 3end 4ref 5alt 6panel
+   	del_chr_pos=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $1}'`
+	del_start=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $2}'`
+	del_end=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $3}'`
+	del_ref=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $4}'`
+	del_alt=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $5}'`
+	del_adapter=`cat ${vaf_sort_temp}/${bed_n}/adapter_all | awk '{print $1}'`
+	OLD_IFS="$IFS" 
+	IFS="" 
+	arr=(${del_adapter}) 
+	IFS="$OLD_IFS" 
+	cutoff=0.300000
+	declare -A dic
+	dic=()
+	if [[ `expr ${cutoff} \> O` == 1 ]]; then
+		for n_adapter in ${arr[@]}
+		do
+			if [[ ${del_alt} == '-' ]] || [[ ${del_ref} == '-' ]]; then
+				declare -A dic1
+				dic1=()
+				del_start=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $2}'`
+				for (( i = -1; i < 2; i++ )); do
+					del_start1=`expr ${del_start} + ${i}`
+					if [[ ${n_adapter} =~ "ready.bam" ]]; then
+						${igvtools} count -w 1 --bases --query ${del_chr_pos}:${del_start1}-${del_start1} $bam_round/$bed_n1/$n_adapter ${igvtools_result}/${n_adapter}.wig ${fasta}
+					else
+						${igvtools} count -w 1 --bases --query ${del_chr_pos}:${del_start1}-${del_start1} ${bam_file}/${n_adapter}.ready.bam ${igvtools_result}/${n_adapter}.wig ${fasta}
+					fi
+					if [[ `cat ${igvtools_result}/${n_adapter}.wig | wc -l` -eq 4 ]]; then
+						A=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $2}'`
+						C=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $3}'`
+						G=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $4}'`
+						T=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $5}'`
+						N=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $6}'`
+						DEL=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $7}'`
+						INS=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $8}'`
+						if [[ ${del_alt} == '-' ]]; then
+							#statements
+							vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$6/($1+$2+$3+$4+$5+$6))}'`
+						fi
+						if [[ ${del_ref} == '-' ]]; then
+							#statements
+							vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$7/($1+$2+$3+$4+$5+$6))}'`
+						fi
+						dic1[${del_start1}]=${vaf}		
+					fi				
+				done
+				max=0
+				for key in $(echo ${!dic1[*]}) 
+				do 
+					array_num=${dic1[$key]}
+					echo $key:$array_num  
+					if [[ `expr ${array_num} \> ${max}` -eq 1 ]]; then
+						max=$array_num
+						del_start=$key
+					fi
+				done
+			fi
+			if [[ ${n_adapter} =~ "ready.bam" ]]; then
+				${igvtools} count -w 1 --bases --query ${del_chr_pos}:${del_start}-${del_start} $bam_round/$bed_n1/$n_adapter ${igvtools_result}/${n_adapter}.wig ${fasta}
+			else
+				${igvtools} count -w 1 --bases --query ${del_chr_pos}:${del_start}-${del_start} ${bam_file}/${n_adapter}.ready.bam ${igvtools_result}/${n_adapter}.wig ${fasta}
+			fi
+			if [[ `cat ${igvtools_result}/${n_adapter}.wig | wc -l` -eq 4 ]]; then
+				#statements
+				A=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $2}'`
+				C=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $3}'`
+				G=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $4}'`
+				T=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $5}'`
+				N=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $6}'`
+				DEL=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $7}'`
+				INS=`less ${igvtools_result}/${n_adapter}.wig | sed -n 4p | awk  '{print $8}'`		
+				if [[ ${del_alt} == '-' ]]; then
+					#alt为-
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$6/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} != '-' ]] && [[ ${del_alt} == 'A' ]]; then
+					#alt为A
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$1/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} != '-' ]] && [[ ${del_alt} == 'C' ]]; then
+					#alt为C
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$2/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} != '-' ]] && [[ ${del_alt} == 'G' ]]; then
+					#alt为G
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$3/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} != '-' ]] && [[ ${del_alt} == 'T' ]]; then
+					#alt为T
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$4/($1+$2+$3+$4+$5+$6))}'`
+				elif [[ ${del_ref} == '-' ]]; then
+					#ref为-
+					vaf=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.4f\n",$7/($1+$2+$3+$4+$5+$6))}'`
+				fi
+				depth=`echo ${A} ${C} ${G} ${T} ${N} ${DEL} ${INS} | awk '{printf("%0.0f\n",$1+$2+$3+$4+$5+$6+$7)}'`
+				dic[${n_adapter}]=${vaf}:${depth}
+			fi
+		done
+		del_start=`cat ${unique_panel_dir}/${bed_n}.csv |sed 's/\"//g' | sed -n ${n_del}p |awk -F',' '{print $2}'`
+		for key in $(echo ${!dic[*]})
+		do
+		    echo "$key:${dic[$key]}"
+		done >> ${vaf_unsort}
+		sort -n -k 2 -t : ${vaf_unsort} > ${vaf_sort}
+		cat -n ${vaf_sort}
+		sort_row=`less $vaf_sort | wc -l`
+		if [[ ${sort_row} -gt 0 ]]; then
+			v1=`less $vaf_sort | awk 'BEGIN {FS=":";OFS=":"} {if($2<0.01) {print $0}}'|wc -l`
+			v2=`less $vaf_sort | awk 'BEGIN {FS=":";OFS=":"} {if($2>=0.01) {print $0}}'|wc -l`
+			v2_bili=`echo $v1 $v2|awk '{printf("%0.6f\n",$2/($1+$2))}'`
+		else
+			echo $n_del sortfile is 0
+		fi
+		v2_v1=-1
+		if [[ `expr ${v2_bili} \<= ${cutoff}` -eq 1 ]] && [[ ${v1} -gt 0 ]] && [[ ${v2} -gt 0 ]] && [[ ${sort_row} -gt 0 ]]; then
+			v1_max=`less ${vaf_sort} | sed -n ${v1}p | awk -F':' '{print $2}'`
+			v2_min_row=`expr ${v1} + 1`
+			v2_min=`less ${vaf_sort} | sed -n ${v2_min_row}p | awk -F':' '{print $2}'`
+			v2_v1=`echo $v1_max $v2_min | awk '{printf("%0.6f\n",$2-$1)}'`
+		fi
+		if [[ `echo "${v2_v1}>=0.005" | bc` -eq 1 ]]; then	
+			echo [v2_bili:${v2_bili},v2:${v2},v1+v2:`expr ${v1} + ${v2}`][cutoff:${cutoff}]
+			cat $vaf_sort | sed -n 1,${v1}p  |awk '{if($0!~/ready.bam/) {print $0}}' > ${vaf_del}			
+		elif [[ ${sort_row} -gt 0 ]] && [[ ${v1} -eq ${sort_row} ]]; then
+			cat $vaf_sort | sed -n 1,${sort_row}p  |awk '{if($0!~/ready.bam/) {print $0}}' > ${vaf_del}
+		else
+			mutation_cut=0
+			mutation_proportion=1
+			row_vaf_sort=`less ${vaf_sort} | wc -l`
+			max_vaf=`less ${vaf_sort} | sed -n ${row_vaf_sort}p | awk -F':' '{print $2}'`
+			if [[ `expr ${max_vaf} \<= 0.02` -eq 1 ]]; then
+				#statements
+				cut_two=0.01
+			elif [[ `expr ${max_vaf} \> 0.02` -eq 1 ]] && [[ `expr ${max_vaf} \<= 0.05` -eq 1 ]]; then
+				#statements
+				cut_two=0.03
+			elif [[ `expr ${max_vaf} \> 0.05` -eq 1 ]] && [[ `expr ${max_vaf} \<= 0.1` -eq 1 ]]; then
+				#statements
+				cut_two=0.05
+			elif [[ `expr ${max_vaf} \> 0.1` -eq 1 ]] && [[ `expr ${max_vaf} \<= 0.2` -eq 1 ]]; then
+				#statements
+				cut_two=0.1
+			elif [[ `expr ${max_vaf} \> 0.2` -eq 1 ]]; then
+				#statements
+				cut_two=0.15
+			fi
+			for key in $(seq 1 `sed -n '$=' ${vaf_sort}`)
+			do
+				vaf_value=`less ${vaf_sort} | sed -n ${key}p | awk -F':' '{print $2}'`
+				adapter_value=`less ${vaf_sort} | sed -n ${key}p | awk -F':' '{print $1}'`
+				if [[ ${key} -ne `sed -n '$=' ${vaf_sort}` ]]; then
+					#statements
+					key1=`expr ${key} + 1`
+					vaf_value1=`less ${vaf_sort} | sed -n ${key1}p | awk -F':' '{print $2}'`
+					adapter_value1=`less ${vaf_sort} | sed -n ${key1}p | awk -F':' '{print $1}'`
+					dif=`echo ${vaf_value} ${vaf_value1} | awk '{printf("%0.6f\n",$2-$1)}'`
+					if [[ `echo "${dif}>=${cut_two}" | bc` -eq 1 ]]; then
+						#statements
+						mutation_cut=${key}
+						echo now:${n_del},all:`sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`
+						echo "$key:$adapter_value:$vaf_value"
+						echo "$key1:$adapter_value1:$vaf_value1"
+						break
+					fi
+				else
+					echo now:${n_del},all:`sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`
+					echo not find diff greater than ${cut_two}
+				fi
+			done
+			if [[ ${mutation_cut} -gt 0 ]]; then
+				#statements
+				all_adapter=`sed -n '$=' ${vaf_sort}`
+				mutation_proportion=`echo ${all_adapter} ${mutation_cut} | awk '{printf("%0.6f\n",($1-$2)/$1)}'`
+				if [[ `echo "${mutation_proportion}>${cutoff}" | bc` -eq 1 ]]; then
+				#statements
+					cat $vaf_sort |awk '{if($0!~/ready.bam/) {print $0}}' > ${vaf_del}
+				else
+					cat $vaf_sort | sed -n 1,${mutation_cut}p |awk '{if($0!~/ready.bam/) {print $0}}' > ${vaf_del}
+				fi
+			else
+				cat $vaf_sort |awk '{if($0!~/ready.bam/) {print $0}}' > ${vaf_del}
+			fi
+		fi
+		del_row=()
+		del_array=()
+		i=0
+		vaf_del_row=`less $vaf_del |wc -l`
+		if [[ $vaf_del_row -gt 0 ]]; then
+			for n_adapter in `cat ${vaf_del} | awk -F':' '{print $1}'`
+			do 	
+				database=${round_dir}/${n_adapter}.round.xls
+				find1=`echo -ne "$del_chr_pos\t$del_start\t$del_end\t$del_ref\t$del_alt\t"|xargs -i grep -n {} ${database}| awk -F ':' '{print $1}'`
+				if [[ -n $find1 ]]; then
+					del_row[i]=${find1}
+					del_array[i]=${database}
+					i=`expr ${i} + 1`
+				fi
+			done
+			echo now:${n_del},all:`sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`
+			echo need delete:
+			for(( ndel=0; ndel<${#del_array[*]} ;ndel++ ))
+			do 
+				echo ${del_array[ndel]}:${del_row[ndel]}d
+				sed -i ${del_row[ndel]}d ${del_array[ndel]}
+			done
+		fi 
+	fi
+}
+function which_panel()
+{
+	bed_n=$1
+	row_bed=$2
+	if [[ $bed_n == "A067V2-primer.bed.right.bed" ]]; then
+		bed_n1=A067V1-20200610.amp.bed
+	else
+		bed_n1=$bed_n
+	fi
+	if [[ $row_bed -lt 10 ]] && [[ -d $bam_round/$bed_n1 ]]; then
+		item=`expr 10 - $row_bed`
+		less $bam_round/$bed_n1/config.csv | sed -n 1,${item}p > ${vaf_sort_temp}/${bed_n}/adapter_add
+		grep ${bed_n} ${config} | awk -F ',' '{print $1}' > ${vaf_sort_temp}/${bed_n}/adapter
+		cat ${vaf_sort_temp}/${bed_n}/adapter ${vaf_sort_temp}/${bed_n}/adapter_add > ${vaf_sort_temp}/${bed_n}/adapter_all
+		for n_del in $(seq 2 `sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`)
+		do  
+			delete_spot_add $n_del $bed_n $row_bed
+		done
+	else
+		for n_del in $(seq 2 `sed -n '$=' ${unique_panel_dir}/${bed_n}.csv`)
+		do  
+			delete_spot $n_del $bed_n
+		done
+	fi	
+}
+function white_filter()
+{
+	adapter=$1
+	bed=$2
+	less $nsnp_dir/$adapter.nsnp.xls | sed -n 1p > $nowhite_dir/$adapter.nowhite_1.xls
+	awk 'BEGIN {FS=OFS="\t"} NR==FNR {a[$2,$3,$4,$5,$6]=$0;next} {if((a[$1,$2,$3,$4,$5]!="")||FNR==1||($7=="ERBB2"&&$10~/exon20/&&$14>=0.01&&$4=="-")){print $0}}' ${white_hotpos} ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno.xls | awk 'BEGIN {FS=OFS="\t"} {if((($7=="MYD88"||$7=="EGFR")&&$14>=0.001)||(($7!="MYD88"&&$7!="EGFR")&&$14>=0.01)){print $0}}' | awk 'BEGIN {FS=OFS="\t"} NR==FNR {a[$1,$2,$3,$4,$5]=$9;next} {if(FNR==1){print $0} else {if(a[$1,$2,$3,$4,$5]!="no" || $14>=0.05) {print $0}}}' ${nowpath}/${adapter}/${adapter}.lianti.qbase.xls - > $white_dir/$adapter.white.xls
+	less ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno.xls | awk 'BEGIN {FS=OFS="\t"} {if($7=="EGFR"&&$5=="-"&&$10~/exon19/&&$14>=0.001){print $0}}' | awk 'BEGIN {FS=OFS="\t"} NR==FNR {a[$1,$2,$3,$4,$5]=$9;next} {if(FNR==1){print $0} else {if(a[$1,$2,$3,$4,$5]!="no" || $14>=0.05) {print $0}}}' ${nowpath}/${adapter}/${adapter}.lianti.qbase.xls - | awk 'BEGIN {FS=OFS="\t"} NR==FNR {a[$1,$2,$3,$4,$5]=$0;next} {if(a[$1,$2,$3,$4,$5]==""){print $0}}' $white_dir/$adapter.white.xls - >> $white_dir/$adapter.white.xls
+	grep -vf $white_dir/$adapter.white.xls $nsnp_dir/$adapter.nsnp.xls >> $nowhite_dir/$adapter.nowhite_1.xls
+	less $nowhite_dir/$adapter.nowhite_1.xls|awk 'BEGIN {FS="\t";OFS="\t"} {if(!(($64<=50&&$7!="TP53")||(($64<=1000)&&($14<=0.02)&&($16==".")&&($4!="-")&&($5!="-"))||(($14<=0.03)&&($7!="TP53"&&$16!~/haematopoietic_and_lymphoid_tissue/))||(($4!="-")&&($5!="-")&&($14<=0.05)&&($16=="."&&$6!~/splicing/&&$9!~/stop/))||(($64<=300)&&($14<=0.035)&&($16==".")&&($4!="-")&&($5!="-"))||(($64<=100)&&($16==".")&&($14<=0.2)&&($4!="-")&&($5!="-")))||($10~/EGFR:NM_005228:exon18/||$10~/EGFR:NM_005228:exon19/||$10~/EGFR:NM_005228:exon20/||$10~/EGFR:NM_005228:exon21/||$10~/ERBB2:NM_004448:exon20/)) {print $0}}'>$nowhite_dir/$adapter.nowhite.xls
+}
+function fisrt_adjust()
+{
+	adapter=$1
+	less $noblack/$adapter.noblack.xls | sed -n 1p > $round_dir/$adapter.round.xls
+	row=`cat $noblack/$adapter.noblack.xls|wc -l`
+	for t in $(seq 2 ${row})
+	do
+		vaf=0
+		chr=`cat $noblack/$adapter.noblack.xls | sed -n ${t}p |awk -F'\t' '{print $1}'`
+		start=`cat $noblack/$adapter.noblack.xls | sed -n ${t}p |awk -F'\t' '{print $2}'`
+		end=`cat $noblack/$adapter.noblack.xls | sed -n ${t}p |awk -F'\t' '{print $3}'`
+		ref=`cat $noblack/$adapter.noblack.xls | sed -n ${t}p |awk -F'\t' '{print $4}'`
+		alt=`cat $noblack/$adapter.noblack.xls | sed -n ${t}p |awk -F'\t' '{print $5}'`
+		if [[ ${alt} == '-' ]] || [[ ${ref} == '-' ]]; then
+			declare -A dic1
+			dic1=()
+			for (( i = -1; i < 2; i++ )); do
+				start1=`expr ${start} + ${i}`
+				${igvtools} count -w 1 --minMapQuality 10 --strands read --bases --query ${chr}:${start1}-${start1} ${bam_file}/${adapter}.ready.bam ${round_igvtools}/${adapter}.wig ${fasta}
+				if [[ `cat ${round_igvtools}/${adapter}.wig | wc -l` -eq 4 ]]; then
+					Positive_A=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $2}'`
+					Positive_C=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $3}'`
+					Positive_G=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $4}'`
+					Positive_T=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $5}'`
+					Positive_N=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $6}'`
+					Positive_DEL=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $7}'`
+					Positive_INS=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $8}'`
+					Negative_A=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $9}'`
+					Negative_C=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $10}'`
+					Negative_G=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $11}'`
+					Negative_T=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $12}'`
+					Negative_N=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $13}'`
+					Negative_DEL=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $14}'`
+					Negative_INS=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $15}'`
+					if [[ ${alt} == '-' ]]; then
+						#statements
+						vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($5+$11)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+					fi
+					if [[ ${ref} == '-' ]]; then
+						#statements
+						vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($6+$12)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+					fi
+					dic1[${start1}]=${vaf}		
+				fi				
+			done
+			max=0
+			for key in $(echo ${!dic1[*]}) 
+			do 
+				array_num=${dic1[$key]}
+				echo $key:$array_num  
+				if [[ `expr ${array_num} \> ${max}` -eq 1 ]]; then
+					max=$array_num
+					start=$key
+				fi
+			done
+		fi
+		${igvtools} count -w 1 --minMapQuality 10 --strands read --bases --query ${chr}:${start}-${start} ${bam_file}/${adapter}.ready.bam ${round_igvtools}/${adapter}.wig ${fasta}
+		if [[ `cat ${round_igvtools}/${adapter}.wig | wc -l` -eq 4 ]]; then
+			#statements
+			Positive_A=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $2}' | cut -d "." -f1`
+			Positive_C=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $3}' | cut -d "." -f1`
+			Positive_G=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $4}' | cut -d "." -f1`
+			Positive_T=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $5}' | cut -d "." -f1`
+			Positive_N=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $6}' | cut -d "." -f1`
+			Positive_DEL=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $7}' | cut -d "." -f1`
+			Positive_INS=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $8}' | cut -d "." -f1`
+			Negative_A=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $9}' | cut -d "." -f1`
+			Negative_C=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $10}' | cut -d "." -f1`
+			Negative_G=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $11}' | cut -d "." -f1`
+			Negative_T=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $12}' | cut -d "." -f1`
+			Negative_N=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $13}' | cut -d "." -f1`
+			Negative_DEL=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $14}' | cut -d "." -f1`
+			Negative_INS=`less ${round_igvtools}/${adapter}.wig | sed -n 4p | awk  '{print $15}' | cut -d "." -f1`
+
+			Positive_all=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} | awk '{printf("%0.0f\n",$1+$2+$3+$4+$5)}'`
+			Negative_all=`echo ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} | awk '{printf("%0.0f\n",$1+$2+$3+$4+$5)}'`
+			if [[ ${alt} == '-' ]]; then
+				#alt为-
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($5+$11)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$5+$11)}'`
+				Positive_mutant=$Positive_DEL
+				Negative_mutant=$Negative_DEL
+			elif [[ ${ref} != '-' ]] && [[ ${alt} == 'A' ]]; then
+				#alt为A
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($1+$7)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$1+$7)}'`
+				Positive_mutant=$Positive_A
+				Negative_mutant=$Negative_A
+			elif [[ ${ref} != '-' ]] && [[ ${alt} == 'C' ]]; then
+				#alt为C
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($2+$8)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$2+$8)}'`
+				Positive_mutant=$Positive_C
+				Negative_mutant=$Negative_C
+			elif [[ ${ref} != '-' ]] && [[ ${alt} == 'G' ]]; then
+				#alt为G
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($3+$9)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$3+$9)}'`
+				Positive_mutant=$Positive_G
+				Negative_mutant=$Negative_G
+			elif [[ ${ref} != '-' ]] && [[ ${alt} == 'T' ]]; then
+				#alt为T
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($4+$10)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$4+$10)}'`
+				Positive_mutant=$Positive_T
+				Negative_mutant=$Negative_T
+			elif [[ ${ref} == '-' ]]; then
+				#ref为-
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($6+$12)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$6+$12)}'`
+				Positive_mutant=$Positive_INS
+				Negative_mutant=$Negative_INS
+			fi
+			depth=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$1+$2+$3+$4+$5+$7+$8+$9+$10+$11)}'`
+			if [[ `echo "${vaf}>=0.01" | bc` -eq 1 ]]; then
+				if [[ `echo "${vaf}>=0.02" | bc` -eq 1 ]] || [[ $num -ge 10 ]]; then
+					less $noblack/$adapter.noblack.xls | sed -n ${t}p >> $round_dir/$adapter.round.xls
+				fi
+			fi
+		fi
+	done
+}
+function spot_round()
+{
+	adapter=$1
+	bed=$2
+	row_n=`cat $round_dir/$adapter.round.xls|wc -l`
+	less $round_dir/$adapter.round.xls | sed -n 1p > $side_dir/$adapter.side.xls
+	less $round_dir/$adapter.round.xls | sed -n 1p > $noside_dir/$adapter.noside.xls
+	for j in $(seq 2 ${row_n})
+	do
+		ref=`cat $round_dir/$adapter.round.xls | sed -n ${j}p |awk -F '\t' '{print $4}'`
+		alt=`cat $round_dir/$adapter.round.xls | sed -n ${j}p |awk -F '\t' '{print $5}'`
+		vaf=`cat $round_dir/$adapter.round.xls | sed -n ${j}p |awk -F '\t' '{print $14}'`
+		if [[ $ref != "-" ]] && [[ $alt != "-" ]] && [[ `expr ${vaf} \< 0.035` -eq 1 ]]; then
+			start=`cat $round_dir/$adapter.round.xls | sed -n ${j}p |awk -F '\t' '{print $2}'`
+			start1=`expr $start - 5`
+			start2=`expr $start + 5`
+			num=`less ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno.xls | awk -v vaf=$vaf -v start=$start -v start1=$start1 -v start2=$start2 'BEGIN {FS="\t";OFS="\t"} {if(($2>=start1)&&($2<=start2)&&($2!=start)&&($14>=0.005)&&($14<=vaf)&&($4!="-")&&($5!="-")) {print $0}}' | wc -l`
+			if [[ $num -ge 2 ]]; then
+				less $round_dir/$adapter.round.xls | sed -n ${j}p >> $side_dir/$adapter.side.xls
+			else
+				less $round_dir/$adapter.round.xls | sed -n ${j}p >> $noside_dir/$adapter.noside.xls
+			fi
+		else
+			less $round_dir/$adapter.round.xls | sed -n ${j}p >> $noside_dir/$adapter.noside.xls
+		fi
+	done
+	awk -F '\t' '{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"}' $black_add | xargs -i grep {} $snp_dir/$adapter.snp.xls>$snp_dir/$adapter.snp_black.xls
+	grep -vf $snp_dir/$adapter.snp_black.xls $snp_dir/$adapter.snp.xls > $snp_dir/$adapter.snp_noblack.xls
+	cat $noside_dir/$adapter.noside.xls $snp_dir/$adapter.snp_noblack.xls | awk 'BEGIN {FS="\t";OFS="\t"} {if(NR==1||$1!~/Chr/) {print $0}}' > $noside_dir/$adapter.all.xls
+	less $noside_dir/$adapter.all.xls | sed -n 1p > $noside_dir/$adapter.adjust.xls
+	row_cosmic=`cat $noside_dir/$adapter.all.xls|wc -l`
+	for t in $(seq 2 ${row_cosmic})
+	do
+		vaf=0
+		chr=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $1}'`
+		start=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $2}'`
+		end=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $3}'`
+		ref=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $4}'`
+		alt=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $5}'`
+		len=`echo $ref $alt | awk '{if(length($1)>=15||length($2)>=15) {print "yes"}}'`
+		if [[ ${alt} == '-' ]] || [[ ${ref} == '-' ]]; then
+			declare -A dic1
+			dic1=()
+			for (( i = -1; i < 2; i++ )); do
+				start1=`expr ${start} + ${i}`
+				${igvtools} count -w 1 --minMapQuality 10 --strands read --bases --query ${chr}:${start1}-${start1} ${bam_file}/${adapter}.ready.bam ${igvtools_adjust}/${adapter}.wig ${fasta}
+				if [[ `cat ${igvtools_adjust}/${adapter}.wig | wc -l` -eq 4 ]]; then
+					Positive_A=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $2}'`
+					Positive_C=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $3}'`
+					Positive_G=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $4}'`
+					Positive_T=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $5}'`
+					Positive_N=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $6}'`
+					Positive_DEL=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $7}'`
+					Positive_INS=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $8}'`
+					Negative_A=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $9}'`
+					Negative_C=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $10}'`
+					Negative_G=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $11}'`
+					Negative_T=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $12}'`
+					Negative_N=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $13}'`
+					Negative_DEL=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $14}'`
+					Negative_INS=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $15}'`
+					if [[ ${alt} == '-' ]]; then
+						#statements
+						vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($5+$11)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+					fi
+					if [[ ${ref} == '-' ]]; then
+						#statements
+						vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($6+$12)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+					fi
+					dic1[${start1}]=${vaf}		
+				fi				
+			done
+			max=0
+			for key in $(echo ${!dic1[*]}) 
+			do 
+				array_num=${dic1[$key]}
+				echo $key:$array_num  
+				if [[ `expr ${array_num} \> ${max}` -eq 1 ]]; then
+					max=$array_num
+					start=$key
+				fi
+			done
+		fi
+		${igvtools} count -w 1 --minMapQuality 10 --strands read --bases --query ${chr}:${start}-${start} ${bam_file}/${adapter}.ready.bam ${igvtools_adjust}/${adapter}.wig ${fasta}
+		if [[ `cat ${igvtools_adjust}/${adapter}.wig | wc -l` -eq 4 ]]; then
+			#statements
+			Positive_A=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $2}' | cut -d "." -f1`
+			Positive_C=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $3}' | cut -d "." -f1`
+			Positive_G=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $4}' | cut -d "." -f1`
+			Positive_T=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $5}' | cut -d "." -f1`
+			Positive_N=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $6}' | cut -d "." -f1`
+			Positive_DEL=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $7}' | cut -d "." -f1`
+			Positive_INS=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $8}' | cut -d "." -f1`
+			Negative_A=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $9}' | cut -d "." -f1`
+			Negative_C=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $10}' | cut -d "." -f1`
+			Negative_G=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $11}' | cut -d "." -f1`
+			Negative_T=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $12}' | cut -d "." -f1`
+			Negative_N=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $13}' | cut -d "." -f1`
+			Negative_DEL=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $14}' | cut -d "." -f1`
+			Negative_INS=`less ${igvtools_adjust}/${adapter}.wig | sed -n 4p | awk  '{print $15}' | cut -d "." -f1`	
+
+			Positive_all=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} | awk '{printf("%0.0f\n",$1+$2+$3+$4+$5)}'`
+			Negative_all=`echo ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} | awk '{printf("%0.0f\n",$1+$2+$3+$4+$5)}'`	
+			if [[ ${alt} == '-' ]]; then
+				#alt为-
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($5+$11)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$5+$11)}'`
+				Positive_mutant=$Positive_DEL
+				Negative_mutant=$Negative_DEL
+			elif [[ ${ref} != '-' ]] && [[ ${alt} == 'A' ]]; then
+				#alt为A
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($1+$7)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$1+$7)}'`
+				Positive_mutant=$Positive_A
+				Negative_mutant=$Negative_A
+			elif [[ ${ref} != '-' ]] && [[ ${alt} == 'C' ]]; then
+				#alt为C
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($2+$8)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$2+$8)}'`
+				Positive_mutant=$Positive_C
+				Negative_mutant=$Negative_C
+			elif [[ ${ref} != '-' ]] && [[ ${alt} == 'G' ]]; then
+				#alt为G
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($3+$9)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$3+$9)}'`
+				Positive_mutant=$Positive_G
+				Negative_mutant=$Negative_G
+			elif [[ ${ref} != '-' ]] && [[ ${alt} == 'T' ]]; then
+				#alt为T
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($4+$10)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$4+$10)}'`
+				Positive_mutant=$Positive_T
+				Negative_mutant=$Negative_T
+			elif [[ ${ref} == '-' ]]; then
+				#ref为-
+				vaf=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.4f\n",($6+$12)/($1+$2+$3+$4+$5+$7+$8+$9+$10+$11))}'`
+				num=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$6+$12)}'`
+				Positive_mutant=$Positive_INS
+				Negative_mutant=$Negative_INS
+			fi
+			depth=`echo ${Positive_A} ${Positive_C} ${Positive_G} ${Positive_T} ${Positive_DEL} ${Positive_INS} ${Negative_A} ${Negative_C} ${Negative_G} ${Negative_T} ${Negative_DEL} ${Negative_INS} | awk '{printf("%0.0f\n",$1+$2+$3+$4+$5+$7+$8+$9+$10+$11)}'`
+			mutant_all=`expr $Positive_mutant + $Negative_mutant`
+			pos_vaf=`echo $Positive_mutant $Positive_all | awk '{if($2!=0){a=$1/$2;print a} else {print 0}}'`
+			neg_vaf=`echo $Negative_mutant $Negative_all | awk '{if($2!=0){a=$1/$2;print a} else {print 0}}'`
+			pos_neg=`echo $pos_vaf $neg_vaf | awk '{if($1<=$2){b=$1/$2} else {b=$2/$1};print b}'`
+			if [[ `echo "${vaf}>0" | bc` -eq 1  ]]; then
+				if [[ `echo "${vaf}>=0.02" | bc` -eq 1 ]] || [[ $num -ge 10 ]]; then
+					chr=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $1}'`
+					start=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $2}'`
+					end=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $3}'`
+					ref=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $4}'`
+					alt=`cat $noside_dir/$adapter.all.xls | sed -n ${t}p |awk -F'\t' '{print $5}'`
+					if [[ $alt == "-" ]];then alt="*";fi
+					#一向
+					$samtools tview ${bam_file}/${adapter}.ready.bam -p ${chr}:${start} -d T ${fasta} -w 200 > $side_dir/$adapter.reads
+					mut_sum_left=`less $side_dir/$adapter.reads | awk -v chr=$chr -v start=$start -v alt=$alt -v ref=$ref 'BEGIN {FS=OFS=""}{if(NR==2){split($0,a,"");for(i=1;i<=length($0);i++){if(a[i]=="*"){b[i]=i}}};$0=toupper($0);if(ref=="-"){if($2!=" "&&$2!="*"){for(i in b){$i=null};split($0,c," ");print length(c[1])"\t"c[1]}} else if($1==alt){for(i in b){$i=null};split($0,c," ");len=length(c[1])-length(ref)+1;print len"\t"c[1]};}'|wc -l`
+					edge_sum_left=`less $side_dir/$adapter.reads | awk -v chr=$chr -v start=$start -v alt=$alt -v ref=$ref 'BEGIN {FS=OFS=""}{if(NR==2){split($0,a,"");for(i=1;i<=length($0);i++){if(a[i]=="*"){b[i]=i}}};$0=toupper($0);if(ref=="-"){if($2!=" "&&$2!="*"){for(i in b){$i=null};split($0,c," ");print length(c[1])"\t"c[1]}} else if($1==alt){for(i in b){$i=null};split($0,c," ");len=length(c[1])-length(ref)+1;print len"\t"c[1]};}'|awk 'BEGIN {FS=OFS="\t"} {if($1<=20){print $0}}'|wc -l`
+					num_1=`less $side_dir/$adapter.reads | sed -n 2p | grep -o "*" |wc -l`
+					if [[ $num_1 -gt 150 ]]; then
+						ratio_left=0
+					else
+						ratio_left=`echo $mut_sum_left $edge_sum_left | awk '{if($1!=0){printf("%0.2f\n",$2/$1)}else {print 0}}'`
+					fi
+					yi_left=`less $side_dir/$adapter.reads | awk -v ref=$ref -v alt=$alt 'BEGIN {FS=OFS=""} {$0=toupper($0);if(NR==2){split($0,a,"");for(i=1;i<=length($0);i++){if(a[i]=="*"){b[i]=i}}};for(i in b){$i=null};if(ref=="-"){split($0,a," ");if(length(a[1])<=20){if($1=="."){print a[1]}}} else if($1!=" " && $1!=alt){split($0,a," ");if(length(a[1])<=20){if($1=="."){print a[1]}}};}'|wc -l`
+					er_left=`less $side_dir/$adapter.reads | awk -v ref=$ref -v alt=$alt 'BEGIN {FS=OFS=""} {$0=toupper($0);if(NR==2){split($0,a,"");for(i=1;i<=length($0);i++){if(a[i]=="*"){b[i]=i}}};for(i in b){$i=null};if(ref=="-"){split($0,a," ");if(length(a[1])<=20){if($1==","){print a[1]}}} else if($1!=" " && $1!=alt){split($0,a," ");if(length(a[1])<=20){if($1==","){print a[1]}}};}'|wc -l`
+					no_left=`echo $yi_left $er_left $Positive_all $Negative_all | awk '{if($3>=$4){a=$3;b=$4} else {a=$4;b=$3};d=b/a;if(d<=0.1){print 0} else {if($1>=$2){min=$1;max=$3} else {min=$2;max=$4};if(max!=0){printf("%0.2f\n",min/max)}else {print 0}}}'`
+					check_mut_left=`echo $mutant_all $mut_sum_left | awk '{printf("%0.2f\n",$2/$1)}'`
+					if [[ `echo "${no_left}>=0.8" | bc` -eq 1 && `echo "${check_mut_left}>=0.9" | bc` -eq 1 ]]; then
+						if [[ $yi_left -gt $er_left ]]; then
+							vaf=`echo $Negative_mutant $Negative_all | awk '{printf("%0.4f\n",$1/$2)}'`
+							depth=$Negative_all
+						else
+							vaf=`echo $Positive_mutant $Positive_all | awk '{printf("%0.4f\n",$1/$2)}'`
+							depth=$Positive_all
+						fi
+					fi
+					#另一向
+					if [[ $ref == "-" ]]; then
+						start1=`expr $start - 198`
+					else
+						start1=`expr $start - 199`
+					fi
+					for (( j = $start1; j <= $start; j++ )); do
+						$samtools tview ${bam_file}/${adapter}.ready.bam -p ${chr}:${j} -d T ${fasta} -w 200 > $side_dir/$adapter.reads
+						find_pos=`less $side_dir/$adapter.reads | awk -v start=$start 'BEGIN {FS=OFS=""} {if(NR==1){for(i=1;i<=NF;i++){if($i!=" "){a=i;break}};split($0,b," ");pos=b[1]};if(NR==2){for(i=a+1;i<=NF;i++){if($i!="*"){pos=pos+1;if(pos==start){print i"\t"pos}}}}}'`
+						if [[ -n $find_pos ]]; then
+							read_pos=`echo $find_pos | cut -d " " -f1`
+							echo "read_pos:$read_pos"
+							if [[ $read_pos -eq 200 && $ref == "-" ]]; then
+								continue
+							else
+								if [[ $ref == "-" ]]; then
+									read_pos=`expr $read_pos + 1`
+								fi
+								mut_sum_right=`less $side_dir/$adapter.reads | awk -v alt=$alt -v ref=$ref -v read_pos=$read_pos 'BEGIN {FS=OFS=""}{if(NR==2){split($0,a,"");for(i=1;i<read_pos;i++){if(a[i]=="*"){b[i]=i}}};$0=toupper($0);for(i in b){$i=null};split($0,c," ");if(ref=="-"){if($read_pos!=" "&&$read_pos!="*"){print length(c[length(c)])"\t"c[length(c)]}} else {if($read_pos==alt){print length(c[length(c)])"\t"c[length(c)]}}}'|wc -l`
+								edge_sum_right=`less $side_dir/$adapter.reads | awk -v alt=$alt -v ref=$ref -v read_pos=$read_pos 'BEGIN {FS=OFS=""}{if(NR==2){split($0,a,"");for(i=1;i<read_pos;i++){if(a[i]=="*"){b[i]=i}}};$0=toupper($0);for(i in b){$i=null};split($0,c," ");if(ref=="-"){if($read_pos!=" "&&$read_pos!="*"){print length(c[length(c)])"\t"c[length(c)]}} else {if($read_pos==alt){print length(c[length(c)])"\t"c[length(c)]}}}'|awk 'BEGIN {FS=OFS="\t"} {if($1<=20){print $0}}'|wc -l`
+								num_1=`less $side_dir/$adapter.reads | sed -n 2p | grep -o "*" |wc -l`
+								if [[ $num_1 -gt 150 ]]; then
+									ratio_right=0
+								else
+									ratio_right=`echo $mut_sum_right $edge_sum_right | awk '{if($1!=0){printf("%0.2f\n",$2/$1)}else {print 0}}'`
+								fi
+								break
+							fi	
+						fi	
+					done
+					if [[ $ref == "-" ]]; then
+						read_pos=`expr $read_pos - 1`
+					fi
+					yi_right=`less $side_dir/$adapter.reads | awk -v alt=$alt -v ref=$ref -v read_pos=$read_pos 'BEGIN {FS=OFS=""} {$0=toupper($0);if(NR==2){split($0,a,"");for(i=1;i<=length($0);i++){if(a[i]=="*"){b[i]=i}}};for(i in b){$i=null};split($0,a," ");if(ref=="-"){if(length(a[length(a)])<=20){if($read_pos=="."){print a[length(a)]}}} else {if($read_pos!=" " && $read_pos!=alt){if(length(a[length(a)])<=20){if($read_pos=="."){print a[length(a)]}}}}}'|wc -l`
+					er_right=`less $side_dir/$adapter.reads | awk -v alt=$alt -v ref=$ref -v read_pos=$read_pos 'BEGIN {FS=OFS=""} {$0=toupper($0);if(NR==2){split($0,a,"");for(i=1;i<=length($0);i++){if(a[i]=="*"){b[i]=i}}};for(i in b){$i=null};split($0,a," ");if(ref=="-"){if(length(a[length(a)])<=20){if($read_pos==","){print a[length(a)]}}} else {if($read_pos!=" " && $read_pos!=alt){if(length(a[length(a)])<=20){if($read_pos==","){print a[length(a)]}}}}}'|wc -l`
+					no_right=`echo $yi_right $er_right $Positive_all $Negative_all | awk '{if($3>=$4){a=$3;b=$4} else {a=$4;b=$3};d=b/a;if(d<=0.1){print 0} else {if($1>=$2){min=$1;max=$3} else {min=$2;max=$4};if(max!=0){printf("%0.2f\n",min/max)}else {print 0}}}'`
+					no_mut=`echo $no_left $no_right | awk '{if($1>=$2){min=$2;max=$1} else {min=$1;max=$2};printf("%0.2f\n",max)}'`
+					check_mut_right=`echo $mutant_all $mut_sum_right | awk '{printf("%0.2f\n",$2/$1)}'`
+					if [[ `echo "${no_right}>=0.8" | bc` -eq 1 && `echo "${check_mut_right}>=0.9" | bc` -eq 1 ]]; then
+						if [[ $yi_right -gt $er_right ]]; then
+							vaf=`echo $Negative_mutant $Negative_all | awk '{printf("%0.4f\n",$1/$2)}'`
+							depth=$Negative_all
+						else
+							vaf=`echo $Positive_mutant $Positive_all | awk '{printf("%0.4f\n",$1/$2)}'`
+							depth=$Positive_all
+						fi
+					fi
+					if [[ `echo "${ratio_left} <= ${ratio_right}" | bc` -eq 1 ]]; then
+						mut_sum=$mut_sum_right
+						edge_sum=$edge_sum_right
+						ratio=$ratio_right
+					else
+						mut_sum=$mut_sum_left
+						edge_sum=$edge_sum_left
+						ratio=$ratio_left
+					fi
+					check_mut=`echo $mutant_all $mut_sum_left $mut_sum_right | awk '{a=$2/$1;b=$3/$1;if(a<=b){min=a} else {min=b};print min}'`
+					if [[ `echo "${check_mut}>=0.90" | bc` -eq 1 && ${depth} -lt 8000 ]]; then
+						if [[ `echo "${ratio}>=0.70" | bc` -eq 1 ]]; then
+							less $noside_dir/$adapter.all.xls | sed -n ${t}p >> $side_dir/$adapter.side.xls
+							echo "side1"
+						else
+							rat=`echo $Positive_mutant $Negative_mutant |  awk '{if($1>=$2){max=$1;min=$2} else {max=$2;min=$1};printf("%0.4f\n",min/max)}'`
+							echo "rat:$rat"
+							rat_all=`echo $Positive_all $Negative_all |  awk '{if($1>=$2){max=$1;min=$2} else {max=$2;min=$1};printf("%0.4f\n",min/max)}'`
+							echo "正向反向突变比例rat：$rat"
+							echo "正向反向比例rat_all：$rat_all"
+							if [[ $len != "yes" && $Positive_all -gt 0 && $Negative_all -gt 0 && `echo "${rat}<0.1" | bc` -eq 1  && `echo "${rat_all}>0.1" | bc` -eq 1 && `echo "${no_mut}<0.8" | bc` -eq 1 && `echo "${pos_neg}<0.8" | bc` -eq 1 ]]; then
+								less $noside_dir/$adapter.all.xls | sed -n ${t}p >> $side_dir/$adapter.side.xls
+								echo "side2"
+							else
+								less $noside_dir/$adapter.all.xls | sed -n ${t}p | awk -v vaf=${vaf} -v depth=${depth} 'BEGIN {FS="\t";OFS="\t"} {$14=vaf;$64=depth;$65=vaf;print $0}' >> $noside_dir/$adapter.adjust.xls
+								echo "noside"
+							fi
+						fi
+					else
+						less $noside_dir/$adapter.all.xls | sed -n ${t}p >> $noside_dir/$adapter.adjust.xls
+					fi
+				fi	
+			else
+				less $noside_dir/$adapter.all.xls | sed -n ${t}p >> $noside_dir/$adapter.adjust.xls
+			fi
+		fi
+	done
+	less $noside_dir/$adapter.adjust.xls |awk 'BEGIN {FS="\t";OFS="\t"} {if(!(($64<=50&&$7!="TP53")||(($64<=1000)&&($14<=0.02)&&($16==".")&&($4!="-")&&($5!="-"))||(($14<=0.03)&&($7!="TP53"&&$16!~/haematopoietic_and_lymphoid_tissue/))||(($4!="-")&&($5!="-")&&($14<=0.05)&&($16=="."&&$6!~/splicing/&&$9!~/stop/))||(($64<=300)&&($14<=0.035)&&($16==".")&&($4!="-")&&($5!="-"))||(($64<=100)&&($16==".")&&($14<=0.2)&&($4!="-")&&($5!="-")))||($10~/EGFR:NM_005228:exon18/||$10~/EGFR:NM_005228:exon19/||$10~/EGFR:NM_005228:exon20/||$10~/EGFR:NM_005228:exon21/||$10~/ERBB2:NM_004448:exon20/)) {print $0}}' > $noside_dir/$adapter.adjust_filter.xls
+	if [[ -f ${snp_black_dir}/${bed}.xls ]]; then
+		less $noside_dir/$adapter.adjust_filter.xls | awk 'BEGIN {FS="\t";OFS="\t"} {if(!((($15>=0.001)||($49>=0.001)||($52>=0.001))&&($14>=0.2)&&($64<10))) {print $0}}' > $noside_dir/$adapter.adjust_filter1.xls
+		awk -F '\t' '{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"}' ${snp_black_dir}/${bed}.xls|xargs -i grep {} $noside_dir/$adapter.adjust_filter1.xls > $noside_dir/$adapter.adjust_filter1_black.xls
+		grep -vf $noside_dir/$adapter.adjust_filter1_black.xls $noside_dir/$adapter.adjust_filter1.xls > $noside_dir/$adapter.adjust_filter1_noblack.xls
+		\cp $noside_dir/$adapter.adjust_filter1_noblack.xls $noside_dir/$adapter.adjust_filter.xls
+	fi
+}
+function black_pcr_filter()
+{
+	adapter=$1
+	bed=$2
+	less $nowhite_dir/$adapter.nowhite.xls | sed -n 1p > $black_pcr_dir/$adapter.black_pcr.xls
+	less $nowhite_dir/$adapter.nowhite.xls | sed -n 1p > $noblack_pcr_dir/$adapter.noblack_pcr.xls
+	round_row=`less $nowhite_dir/$adapter.nowhite.xls | wc -l`
+	if [[ $bed == "A051V3-20200611.bed" ]] || [[ $bed == "A052V1-primers.bed.right.bed" ]] || [[ $bed == "A053V1_20200430.bed" ]] || [[ $bed == "A066V1-primer.bed.right.bed" ]] || [[ $bed == "PGD350.hg19.bed" ]] || [[ $bed == "PGD397.ampInsert.bed" ]] || [[ $bed == "Ampliseq_lymphoma_large.bed" ]] || [[ $bed == "A051V6-20200624.amp.bed" ]] || [[ $bed == "A067V1-20200610.amp.bed" ]] || [[ $bed == "A068V1-20190511_haohaov2.bed" ]] || [[ $bed == "A068V3-20190511v2.bed" ]] || [[ $bed == "Ampliseq_Lymphoma_ruijing.bed" ]]; then
+		cat ${pcr_black}/black_${bed}.xls $black_add > $nowpath/$adapter.temp
+		for i in $(seq 2 $round_row)
+		do
+			find_black_pcr=`less $nowhite_dir/$adapter.nowhite.xls| sed -n ${i}p | awk 'BEGIN {FS="\t";OFS="\t"} {print $1,$2,$3,$4,$5,""}'|xargs -i grep -n {}  $nowpath/$adapter.temp | awk -F ':' '{print $1}'`
+			ratio_adapter_pcr=`less $nowhite_dir/$adapter.nowhite.xls | sed -n ${i}p | awk -F '\t' '{print $14}'`
+			if [[ -z $find_black_pcr ]]; then
+				#不在黑名单中
+				less $nowhite_dir/$adapter.nowhite.xls | sed -n ${i}p >> $noblack_pcr_dir/$adapter.noblack_pcr.xls				
+			else
+				#在黑名单中,判断突变频率是否大于黑名单中10%
+				ratio_black_pcr=`less $nowpath/$adapter.temp | sed -n ${find_black_pcr}p | awk -F '\t' '{print $7}'`
+				ratio_dif_pcr=`echo $ratio_adapter_pcr $ratio_black_pcr | awk '{printf("%0.6f\n",$1-$2)}'`
+				if [[ `echo "${ratio_dif_pcr} < 0.1" | bc` -eq 1 ]]; then
+					less $nowhite_dir/$adapter.nowhite.xls | sed -n ${i}p >> $black_pcr_dir/$adapter.black_pcr.xls
+				else
+					less $nowhite_dir/$adapter.nowhite.xls | sed -n ${i}p >> $noblack_pcr_dir/$adapter.noblack_pcr.xls
+				fi
+			fi
+		done
+	else
+		\cp $nowhite_dir/$adapter.nowhite.xls $noblack_pcr_dir/$adapter.noblack_pcr.xls
+	fi
+	rm -f $nowpath/$adapter.temp
+}
+function i7_filter()
+{	
+	adapter=$1
+	bed=$2
+	i7=$3
+	machine=$4
+	less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n 1p > $noblack/$adapter.noblack.xls
+	less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n 1p > $black_dir/$adapter.black.xls
+	less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n 1p > $other_dir/$adapter.other.xls
+	round_row=`less $noblack_pcr_dir/$adapter.noblack_pcr.xls | wc -l`
+	for i in $(seq 2 $round_row)
+	do
+		find_black=`less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p | awk -v machine=$machine -v bed=$bed -v i7=$i7 'BEGIN {FS="\t";OFS="\t"} {print machine,bed,i7,$1,$2,$3,$4,$5,""}'|xargs -i grep -n {}  ${black} | awk -F ':' '{print $1}'`
+		ratio_adapter=`less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p | awk -F '\t' '{print $14}'`
+		ref_adapter=`less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p | awk -F '\t' '{print $4}'`
+		alt_adapter=`less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p | awk -F '\t' '{print $5}'`
+		depth_adapter=`less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p | awk -F '\t' '{print $64}'`
+		if [[ -z $find_black ]]; then
+			#不在黑名单中,判断是否是淋巴瘤panel(共5个)
+			if [[ $bed == "Ampliseq_lymphoma_large.bed" ]] || [[ $bed == "A066V1-primer.bed.right.bed" ]] || [[ $bed == "A053V1_20200430.bed" ]] || [[ $bed == "PGD350.hg19.bed" ]] || [[ $bed == "A052V1-primers.bed.right.bed" ]]; then
+				find_hl=`less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p | awk -F '\t' '{print $16}' | grep "haematopoietic_and_lymphoid_tissue" | wc -l`
+				if [[ `expr ${ratio_adapter} \<= 0.05` -eq 1 ]]; then
+					if [[ $find_hl -gt 0 ]]; then
+						#COSMIC不为空且与血液淋巴相关
+						less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p >> $noblack/$adapter.noblack.xls
+					elif [[ $depth_adapter -gt 500 ]] && [[ $ref_adapter != "-" ]] && [[ $alt_adapter != "-" ]]; then
+						#深度大于500，且为点突变
+						less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p >> $noblack/$adapter.noblack.xls
+					else
+						less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p >> $other_dir/$adapter.other.xls
+					fi
+				elif [[ `expr ${ratio_adapter} \> 0.05` -eq 1 ]] && [[ `expr ${ratio_adapter} \<= 0.1` -eq 1 ]]; then
+					if [[ $find_hl -gt 0 ]] || [[ $depth_adapter -gt 200 ]]; then
+						#COSMIC不为空且与血液淋巴相关或深度大于200
+						less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p >> $noblack/$adapter.noblack.xls
+					else
+						less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p >> $other_dir/$adapter.other.xls
+					fi
+				else
+					less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p >> $noblack/$adapter.noblack.xls
+				fi
+			else
+				less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p >> $noblack/$adapter.noblack.xls	
+			fi
+		else
+			#在黑名单中,判断突变频率是否大于黑名单中10%
+			ratio_black=`less ${black} | sed -n ${find_black}p | awk -F '\t' '{print $10}'`
+			ratio_dif=`echo $ratio_adapter $ratio_black | awk '{printf("%0.6f\n",$1-$2)}'`
+			if [[ `echo "${ratio_dif} < 0.2" | bc` -eq 1 || `echo "${ratio_adapter} < 0.4" | bc` -eq 1 ]]; then
+				round_name=`echo $nowpath | awk -F "/"  '{print $7}'`
+				less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p | awk -v round_name=$round_name -v machine=$machine -v bed=$bed -v i7=$i7 'BEGIN {FS="\t";OFS="\t"} {print round_name,machine,bed,i7,$0}' >> ${black_longwang}
+				less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p >> $black_dir/$adapter.black.xls	
+			else
+				less $noblack_pcr_dir/$adapter.noblack_pcr.xls | sed -n ${i}p >> $noblack/$adapter.noblack.xls
+			fi
+		fi
+	done
+}
+# 处理参数
+while getopts "f:i:t:h" arg
+do
+	case $arg in
+		f)
+			config=$OPTARG    # config为config.csv的完整路径
+		  	config=$(readlink -f $config)     # readlink为获得$config对应文件的绝对路径
+		  	if [ "$config" == "" -o ! -e "$config" ];then     # $config为空字符串或者不存在这个文件/目录
+				echo Cannot find config file.
+				exit 1
+		  	fi
+		;;
+		i)
+			inputdir=$OPTARG
+			inputdir=$(readlink -f $inputdir)
+			if [ "$inputdir" == "" -o ! -e "$inputdir" ];then
+				echo Cannot find input path.
+				exit 1
+			fi
+		;;
+		t)
+			machine=$OPTARG
+			if [[ ! ("$machine" == "NoVaSeq" || "$machine" == "MiniSeq" || "$machine" == "NextSeq" || "$machine" == "MiSeq") ]];then
+				echo "-t [NoVaSeq|MiniSeq|NextSeq|MiSeq]".
+				exit 1
+			fi
+		;;
+		h)
+			echo_usage
+		;;
+		*)
+			echo "unknow argument"
+    		echo_usage
+		;;
+	esac
+done
+if [[ $# -eq 0 ]] ;then
+    echo_usage                                         #当没有传入参数显示help信息
+fi
+if [ ! "$config" ] || [ ! "$inputdir" ]
+then
+    echo_usage
+    exit 1
+fi
+
+# define the environment software
+Righton=/Righton_software
+bin_dir=$Righton/bin
+rscript=/usr/bin/Rscript
+igvtools=$bin_dir/IGVTools/igvtools
+samtools=$bin_dir/samtools
+
+# define the directory
+nowpath=$inputdir
+bam_file=${nowpath}/bam_longwang
+qc_file=${nowpath}/QC_longwang
+
+target_dir=$Righton/target
+database_dir=$Righton/database
+merge_dir=$database_dir/ref/merge
+capture_black=$database_dir/ref/capture_black
+pcr_black=$database_dir/ref/pcr_black
+bam_round=$database_dir/ref/bam
+snp_black_dir=$database_dir/ref/snp_black
+
+# define ref files
+black=$database_dir/ref/black_new.xls
+black_add=$database_dir/ref/black_add.xls
+white_hotpos=$database_dir/ref/white_hotpos.xls
+white_snp=$database_dir/ref/white_snp.xls
+black_longwang=$database_dir/ref/black_longwang.xls
+fasta=$database_dir/GATK_hg19/ucsc.hg19.fasta
+
+# define the scripts
+unique_panel=$bin_dir/unique_panel.R
+
+if [[ ! -d ${qc_file} ]]; then mkdir ${qc_file};fi
+
+#程序执行
+ncol_config=`sed -n 1p ${config} |  awk -F',' '{print NF}'`
+round_dir=${nowpath}/filter01/round
+round_igvtools=${round_dir}/igvtools
+noblack=${nowpath}/filter01/noblack
+black_dir=${nowpath}/filter01/black
+other_dir=${nowpath}/filter01/other
+white_dir=${nowpath}/filter01/white
+nowhite_dir=${nowpath}/filter01/nowhite
+black_pcr_dir=${nowpath}/filter01/black_pcr
+noblack_pcr_dir=${nowpath}/filter01/noblack_pcr
+nsnp_dir=${nowpath}/filter01/nsnp
+snp_dir=${nowpath}/filter01/snp
+side_dir=${nowpath}/filter01/side
+noside_dir=${nowpath}/filter01/noside
+stop_dir=${nowpath}/filter01/stop
+igvtools_adjust=${noside_dir}/igvtools_adjust
+igvtools_result_all=${round_dir}/igvtools_result
+vaf_sort_temp=${round_dir}/vaf_sort_temp
+qc=$nowpath/QC_longwang
+unique_panel_dir=${round_dir}/unique_panel
+bed_all=`less ${config} |awk -F ',' '{print $2}' | sort -u |uniq | wc -l`
+echo 【merge QC_longwang】
+for i in $(seq 1 ${bed_all})
+do
+	bed_list=`less ${config} |awk -F ',' '{print $2}' | sort -u |uniq | sed -n ${i}p`
+	echo ${bed_list}
+	grep ${bed_list} ${config} > ${qc}/${bed_list}.adapter
+	sum_adapter=`less ${qc}/${bed_list}.adapter | wc -l`
+	for j in $(seq 1 ${sum_adapter})
+	do
+		adapter_n=`less ${qc}/${bed_list}.adapter | sed -n ${j}p | awk -F ',' '{print $1}'`
+		if [[ j -eq 1 ]]; then
+			echo -ne "Chr\tStart\tEnd\tName\t${adapter_n}\n">${qc}/${bed_list}.depth${j}.xls
+			find ${nowpath} -name "${adapter_n}*.Amplicon.averagedepth"|xargs -i less {}|awk '{FS="\t";OFS="\t"} {print $1,$2,$3,$4,$5}'>>${qc}/${bed_list}.depth${j}.xls
+		else
+			find ${nowpath} -name "${adapter_n}*.Amplicon.averagedepth"|xargs -i less {}|awk '{FS="\t";OFS="\t"} {print $5}'>${qc}/temp
+			sed  -i "1 i ${adapter_n}" ${qc}/temp
+			jj=`expr ${j} - 1`
+			paste ${qc}/${bed_list}.depth${jj}.xls ${qc}/temp > ${qc}/${bed_list}.depth${j}.xls
+			rm -rf ${qc}/${bed_list}.depth${jj}.xls
+		fi
+	done
+	\mv ${qc}/${bed_list}.depth${j}.xls ${qc}/${bed_list}.depth.xls
+	rm -rf ${qc}/temp ${qc}/${bed_list}.adapter
+done
+echo 【white filter】
+if [[ ! -d ${white_dir} ]]; then
+	mkdir ${white_dir}
+fi
+if [[ ! -d ${nowhite_dir} ]]; then
+	mkdir ${nowhite_dir}
+fi
+k=0
+for i in $(seq 1 `sed -n '$=' $config`)
+do
+	adapter=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $1}' | sed -n ${i}p`
+	bed=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $2}' | sed -n ${j}p`
+	echo ${adapter}
+	if [[ $k -lt 100 ]]; then
+		white_filter $adapter $bed &
+	fi
+	k=`expr $k + 1`
+	if [[ $k -gt 100 ]]; then
+		wait
+		k=0
+		white_filter $adapter $bed &
+		k=`expr $k + 1`
+	fi
+done
+wait
+echo 【black filter】
+mkdir -p ${noblack}
+mkdir -p ${black_dir}
+mkdir -p ${other_dir}
+black=${black_dir}/black.list
+cat ${black_new} ${black_old} > ${black}
+black_row=`less ${black} | wc -l`
+if [[ $black_row -ne 0 ]]; then
+	#扩增需要过黑名单的几个panel
+	mkdir -p ${black_pcr_dir}
+	mkdir -p ${noblack_pcr_dir}
+	k=0
+	for j in $(seq 1 `sed -n '$=' $config`)
+	do
+		adapter=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $1}' | sed -n ${j}p`
+		bed=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $2}' | sed -n ${j}p`
+		if [[ $k -lt 100 ]]; then
+			black_pcr_filter $adapter $bed &
+		fi
+		k=`expr $k + 1`
+		if [[ $k -gt 100 ]]; then
+			wait
+			k=0
+			black_pcr_filter $adapter $bed &
+			k=`expr $k + 1`
+		fi
+	done
+	wait
+	#扩增
+	k=0
+	for j in $(seq 1 `sed -n '$=' $config`)
+	do
+		adapter=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $1}' | sed -n ${j}p`
+		echo ${adapter}
+		bed=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $2}' | sed -n ${j}p`
+		pos=`awk -v a="$adapter" -v b="Adapter-" 'BEGIN{print index(a,b)}'`
+
+		if [[ $pos -gt 0 ]];then
+			str1=`echo ${adapter: $pos-1: 12}`
+			len=`echo ${#str1}`
+			if [[ $bed == "PGD350.hg19.bed" || $len -ne 12 ]]; then
+				i7=$str1
+			else
+				i7=`echo $str1|cut -c 9-10`
+			fi
+		else
+			if [[ `echo ${adapter: 21: 1}` == "A" ]]; then
+				if [[ $bed == "PGD350.hg19.bed" ]]; then
+					i7=`echo Adapter-${adapter: 22: 4}`
+				else
+					i7=`echo ${adapter: 22: 4}`
+				fi
+			else
+				i7=$adapter
+			fi
+		fi
+		
+		if [[ $k -lt 100 ]]; then
+			i7_filter $adapter $bed $i7 $machine &
+		fi
+		k=`expr $k + 1`
+		if [[ $k -gt 100 ]]; then
+			wait
+			k=0
+			i7_filter $adapter $bed $i7 $machine &
+			k=`expr $k + 1`
+		fi
+	done
+	wait
+fi
+echo 【round filter】
+if [[ $machine == "NoVaSeq" ]];then 
+	bam_round=${bam_round_all}
+elif [[ $machine == "MiniSeq" ]]; then
+	bam_round=${bam_round_all}/MiniSeq
+elif [[ $machine == "NextSeq" ]]; then
+	bam_round=${bam_round_all}/NextSeq
+elif [[ $machine == "MiSeq" ]]; then
+	bam_round=${bam_round_all}/MiSeq
+fi
+mkdir -p $round_igvtools
+k=0
+for i in $(seq 1 `sed -n '$=' $config`)
+do
+	adapter=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $1}' | sed -n ${i}p`
+	if [[ $k -lt 20 ]]; then
+		fisrt_adjust $adapter &
+	fi
+	k=`expr $k + 1`
+	if [[ $k -gt 20 ]]; then
+		wait
+		k=0
+		fisrt_adjust $adapter &
+		k=`expr $k + 1`
+	fi
+done
+wait
+config1=$nowpath/config_longwang_wanhuihui.csv
+cp ${config} ${config1}
+${rscript}  ${unique_panel}  ${nowpath} ${config1}
+rm -f ${config1}
+if [[ ! -d ${igvtools_result_all} ]]; then
+	mkdir ${igvtools_result_all}
+fi
+if [[ ! -d ${vaf_sort_temp} ]]; then
+	mkdir ${vaf_sort_temp}
+fi
+for i in $(seq 1 ${bed_all})
+do
+	bed_n=`less ${config} |awk -F ',' '{print $2}' | sort -u |uniq | sed -n ${i}p`
+	row_bed=`grep ${bed_n} ${config} | awk -F ',' '{print $1}' | wc -l`
+	mkdir -p ${vaf_sort_temp}/${bed_n}
+	mkdir -p $igvtools_result_all/$bed_n
+	which_panel $bed_n $row_bed &
+done
+wait
+echo 【del and ins rescue】
+for i in $(seq 1 `sed -n '$=' $config`)
+do
+	adapter=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $1}' | sed -n ${i}p`
+	echo ${adapter}
+	cat $round_dir/$adapter.round.xls|awk 'BEGIN {FS="\t";OFS="\t"} {if(($4=="-")||($5=="-")) {print $0}}'>$round_dir/temp
+	row_n=`cat $round_dir/temp|wc -l`
+	if [[ $row_n -gt 0 ]]; then
+		for j in $(seq 1 ${row_n})
+		do
+			start=`cat $round_dir/temp | sed -n ${j}p | awk -F '\t' '{print $2}'`
+			start1=`expr $start - 5`
+			end=`cat $round_dir/temp | sed -n ${j}p | awk -F '\t' '{print $3}'`
+			end1=`expr $end + 5`
+			cat ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno_more.xls | awk -v start1=$start1 -v start=$start -v end=$end 'BEGIN {FS="\t";OFS="\t"} {if(($2>=start1)&&($3<=end1)&&($2!=start)&&(($4=="-")||($5=="-"))) {print $0}}' >> $round_dir/$adapter.round.xls
+		done
+	fi
+	less $round_dir/$adapter.round.xls|awk -F'\t' '!a[$1,$2,$3,$4,$5]++'|awk 'BEGIN {FS="\t";OFS="\t"} {if(!(($64<=50&&$7!="TP53")||(($64<=1000)&&($14<=0.02)&&($16==".")&&($4!="-")&&($5!="-"))||(($14<=0.03)&&($7!="TP53"&&$16!~/haematopoietic_and_lymphoid_tissue/))||(($4!="-")&&($5!="-")&&($14<=0.05)&&($16=="."&&$6!~/splicing/&&$9!~/stop/))||(($64<=300)&&($14<=0.035)&&($16==".")&&($4!="-")&&($5!="-"))||(($64<=100)&&($16==".")&&($14<=0.2)&&($4!="-")&&($5!="-")))||($10~/EGFR:NM_005228:exon18/||$10~/EGFR:NM_005228:exon19/||$10~/EGFR:NM_005228:exon20/||$10~/EGFR:NM_005228:exon21/||$10~/ERBB2:NM_004448:exon20/)) {print $0}}'>$round_dir/$adapter.round1.xls
+	\mv $round_dir/$adapter.round1.xls $round_dir/$adapter.round.xls
+done
+rm -rf $round_dir/temp
+echo 【spot around filter】
+mkdir -p $side_dir
+mkdir -p $noside_dir
+mkdir -p $igvtools_adjust
+k=0
+for i in $(seq 1 `sed -n '$=' $config`)
+do
+	adapter=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $1}' | sed -n ${i}p`
+	bed=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $2}' | sed -n ${i}p`
+	echo ${adapter}
+	if [[ $k -lt 20 ]]; then
+		spot_round $adapter $bed &
+	fi
+	k=`expr $k + 1`
+	if [[ $k -gt 20 ]]; then
+		wait
+		k=0
+		spot_round $adapter $bed &
+		k=`expr $k + 1`
+	fi
+done
+wait
+echo 【merge 【snp and noside】=adjust and white】
+mkdir -p $nowpath/filter02
+mkdir -p $stop_dir
+for i in $(seq 1 `sed -n '$=' $config`)
+do
+	adapter=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $1}' | sed -n ${i}p`
+	bed=`less $config | awk 'BEGIN {FS=",";OFS="\t"} {print $2}' | sed -n ${i}p`
+	echo $adapter
+	less ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno_more.xls | awk 'BEGIN {FS="\t";OFS="\t"} {if(($1=="chr20"&&$2=="31022441"&&$3=="31022441"&&$4=="-"&&$5=="G"&&$14>0.05)||($1=="chr20"&&$2=="31022442"&&$3=="31022442"&&$4=="G"&&$5=="-"&&$14>0.05)){print $0}}' > $snp_dir/$adapter.yes.xls
+	awk -F '\t' 'NR==FNR{a[$1,$2,$3,$4,$5]=$0;next}{if(a[$1,$2,$3,$4,$5]!="" && $14 >=0.2){print $0}}' $white_snp ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno_more.xls >> $snp_dir/$adapter.yes.xls
+	cat $noside_dir/$adapter.adjust_filter.xls | awk 'BEGIN {FS="\t";OFS="\t"} {if((NR==1)||(($1!="Chr")&&($1!="")&&($14>=0.01))) {print $0}}'|awk 'BEGIN {FS="\t";OFS="\t"} {if(!((($15>=0.001)||($49>=0.001)||($52>=0.001))&&($14<0.2))) {print $0}}' | awk 'BEGIN {FS="\t";OFS="\t"} {if(!($15==1||$49==1||$52==1)) {print $0}}' |awk -F'\t' '!a[$1,$2,$3,$4,$5]++' > $stop_dir/$adapter.all.xls
+	cat ${nowpath}/${adapter}/pindel/${adapter}.pindel_more.xls ${nowpath}/${adapter}/km/${adapter}.FLT3_ITD.xls $stop_dir/$adapter.all.xls $snp_dir/$adapter.yes.xls $white_dir/$adapter.white.xls | awk -F'\t' '!a[$1,$2,$3,$4,$5]++' > $nowpath/filter02/$adapter.longwang.xls
+	\cp $nowpath/filter02/$adapter.longwang.xls $nowpath/$adapter
+	echo -ne "Chr\tStart\tEnd\tRef\tAlt\tFunc.refGene\tGene.refGene\tExonicFunc.refGene\tAAChange.refGene\tcytoBand\tgenomicSuperDups\tavsnp150\tcosmic92\tCLINSIG\tCLNDBN\tCLNACC\tCLNDSDB\tCLNDSDBID\tSIFT_score\tSIFT_pred\tPolyphen2_HDIV_score\tPolyphen2_HDIV_pred\tPolyphen2_HVAR_score\tPolyphen2_HVAR_pred\tLRT_score\tLRT_pred\tMutationTaster_score\tMutationTaster_pred\tMutationAssessor_score\tMutationAssessor_pred\tFATHMM_score\tFATHMM_pred\tRadialSVM_score\tRadialSVM_pred\tLR_score\tLR_pred\tVEST3_score\tCADD_raw\tCADD_phred\tGERP++_RS\tphyloP46way_placental\tphyloP100way_vertebrate\tSiPhy_29way_logOdds\tExAC_ALL\tExAC_AFR\tExAC_AMR\tExAC_EAS\tExAC_FIN\tExAC_NFE\tExAC_OTH\tExAC_SAS\t1000g2015aug_all\tDepth\tMutationRate\tType\tOld_AAchange\n" > $nowpath/$adapter/Mutation/$adapter.snp_report.ready.database
+	less $nowpath/filter02/$adapter.longwang.xls | awk 'BEGIN {FS="\t";OFS="\t"} {if(NR!=1){print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6"\t"$7"\t"$9"\t"$10"\t"$11"\t"$12"\t"$13"\t"$16"\t"$17"\t"$18"\t"$19"\t"$20"\t"$21"\t"$22"\t"$23"\t"$24"\t"$25"\t"$26"\t"$27"\t"$28"\t"$29"\t"$30"\t"$31"\t"$32"\t"$33"\t"$34"\t"$35"\t"$36"\t"$37"\t"$38"\t"$39"\t"$40"\t"$41"\t"$42"\t"$43"\t"$44"\t"$45"\t"$46"\t"$49"\t"$50"\t"$51"\t"$52"\t"$53"\t"$54"\t"$55"\t"$56"\t"$15"\t"$64"\t"$65"\t"$66}}' | awk 'BEGIN {FS="\t";OFS="\t"} {if(($44>=0.001)||($47>=0.001)||($52>=0.001)) {$56="Snp"} else {$56="Report"};if($8=="."){$8=$6};a=$55;$55=$56;$56=a;{print $0}}' >> $nowpath/$adapter/Mutation/$adapter.snp_report.ready.database
+	echo -ne "Chr\tStart\tEnd\tRef\tAlt\tFunc.refGene\tGene.refGene\tExonicFunc.refGene\tAAChange.refGene\tcytoBand\tgenomicSuperDups\tavsnp150\tcosmic92\tCLINSIG\tCLNDBN\tCLNACC\tCLNDSDB\tCLNDSDBID\tSIFT_score\tSIFT_pred\tPolyphen2_HDIV_score\tPolyphen2_HDIV_pred\tPolyphen2_HVAR_score\tPolyphen2_HVAR_pred\tLRT_score\tLRT_pred\tMutationTaster_score\tMutationTaster_pred\tMutationAssessor_score\tMutationAssessor_pred\tFATHMM_score\tFATHMM_pred\tRadialSVM_score\tRadialSVM_pred\tLR_score\tLR_pred\tVEST3_score\tCADD_raw\tCADD_phred\tGERP++_RS\tphyloP46way_placental\tphyloP100way_vertebrate\tSiPhy_29way_logOdds\tExAC_ALL\tExAC_AFR\tExAC_AMR\tExAC_EAS\tExAC_FIN\tExAC_NFE\tExAC_OTH\tExAC_SAS\t1000g2015aug_all\tDepth\tMutationRate\tType\tOld_AAchange\n" > $nowpath/$adapter/Mutation/$adapter.hg19_multianno.database
+	less ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno.xls | awk 'BEGIN {FS="\t";OFS="\t"} {if(NR!=1){print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6"\t"$7"\t"$9"\t"$10"\t"$11"\t"$12"\t"$13"\t"$16"\t"$17"\t"$18"\t"$19"\t"$20"\t"$21"\t"$22"\t"$23"\t"$24"\t"$25"\t"$26"\t"$27"\t"$28"\t"$29"\t"$30"\t"$31"\t"$32"\t"$33"\t"$34"\t"$35"\t"$36"\t"$37"\t"$38"\t"$39"\t"$40"\t"$41"\t"$42"\t"$43"\t"$44"\t"$45"\t"$46"\t"$49"\t"$50"\t"$51"\t"$52"\t"$53"\t"$54"\t"$55"\t"$56"\t"$15"\t"$64"\t"$65"\t"$66}}' | awk 'BEGIN {FS="\t";OFS="\t"} {if(($44>=0.001)||($47>=0.001)||($52>=0.001)) {$56="Snp"} else {$56="Report"};if($8=="."){$8=$6};a=$55;$55=$56;$56=a;{print $0}}' >> $nowpath/$adapter/Mutation/$adapter.hg19_multianno.database
+	#联合注释
+	ls --color=none $merge_dir | while read id;do 
+		a=`awk 'BEGIN {FS=OFS="\t"} NR==FNR {a[$1,$2,$3,$4,$5]=$64","$65;next} {sum_all++;if(a[$1,$2,$3,$4,$5]!=0&&FNR!=1) {split(a[$1,$2,$3,$4,$5],b,",");sum=sum+1;depth=b[1];vaf=b[2]}} END {if(sum==""){sum=0};sum_2=sum_all-2;if(sum_2==sum){$53=depth;$54=vaf;print $0}}' ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno_more.xls $merge_dir/$id`
+		if [[ -n $a ]];then
+			awk 'BEGIN {FS=OFS="\t"} NR==FNR {a[$1,$2,$3,$4,$5]=$0;next} {if(a[$1,$2,$3,$4,$5]==""||FNR==1){print $0}}' $merge_dir/$id $nowpath/$adapter/Mutation/$adapter.snp_report.ready.database > $nowpath/$adapter/Mutation/$adapter.snp_report.ready.database-temp
+			awk 'BEGIN {FS=OFS="\t"} NR==FNR {a[$1,$2,$3,$4,$5]=$64","$65;next} {sum_all++;if(a[$1,$2,$3,$4,$5]!=0&&FNR!=1) {split(a[$1,$2,$3,$4,$5],b,",");sum=sum+1;depth=b[1];vaf=b[2]}} END {if(sum==""){sum=0};sum_2=sum_all-2;if(sum_2==sum){$53=depth;$54=vaf;print $0}}' ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno_more.xls $merge_dir/$id >> $nowpath/$adapter/Mutation/$adapter.snp_report.ready.database-temp
+			\mv $nowpath/$adapter/Mutation/$adapter.snp_report.ready.database-temp $nowpath/$adapter/Mutation/$adapter.snp_report.ready.database
+		fi
+	done
+	if [[ $bed == "ABL.bed" ]]; then
+		less ${nowpath}/${adapter}/Mutation/${adapter}.hg19_multianno.xls | awk 'BEGIN {FS=OFS="\t"} {if($14>=0.01){print $0}}' > $nowpath/filter02/$adapter.longwang.xls
+		\cp $nowpath/filter02/$adapter.longwang.xls $nowpath/$adapter
+		less $nowpath/$adapter/Mutation/$adapter.hg19_multianno.database | awk 'BEGIN {FS=OFS="\t"} {if($54>=0.01){print $0}}' > $nowpath/$adapter/Mutation/$adapter.snp_report.ready.database
+	fi
+done
+echo Program is done : `date`
