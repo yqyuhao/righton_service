@@ -147,7 +147,8 @@ RUN git clone https://github.com/xjtu-omics/msisensor-pro.git \
 # copy esssential files
 WORKDIR $software/source
 RUN cd righton_service && cp -f fastq2stat.pl capture_analysis_auto capture_filter_auto capture_filter_auto_wes drug_split msisensor_pro tmb_filter PCR_analysis_auto pcr_filter_auto drug_split msisensor_pro tmb_filter unique_panel.R $software/bin/
-RUN cp A387V2_20220713.bed A215V1-20201023.bed Righton_Drug_Site_hg19.database $software/target/
+WORKDIR $software/source
+RUN cd righton_service && cp A387V2_20220713.bed A215V1-20201023.bed Righton_Drug_Site_hg19.database $software/target/
 
 # install essential packages
 WORKDIR $software/source
