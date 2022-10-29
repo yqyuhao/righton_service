@@ -100,13 +100,14 @@ RUN wget https://github.com/OpenGene/GeneFuse/archive/refs/tags/v0.6.1.tar.gz -O
 && cd $software/source/GeneFuse-0.6.1 && make \
 && ln -s $software/source/GeneFuse-0.6.1 $software/bin/genefuse
 
-# conda v4.12
+# pindel 0.2.5b9
 WORKDIR $software/source
 RUN wget https://repo.anaconda.com/miniconda/Miniconda3-py37_4.12.0-Linux-x86_64.sh -O $software/source/Miniconda3-py37_4.12.0-Linux-x86_64.sh \
 && sh $software/source/Miniconda3-py37_4.12.0-Linux-x86_64.sh -b -p $software/bin/conda-v4.12 \
 && $software/bin/conda-v4.12/bin/conda config --add channels conda-forge \
 && $software/bin/conda-v4.12/bin/conda config --add channels r \
-&& $software/bin/conda-v4.12/bin/conda config --add channels bioconda
+&& $software/bin/conda-v4.12/bin/conda config --add channels bioconda \
+&& $software/bin/conda-v4.12/bin/conda install -y pindel -c bioconda
 
 # jellyfish
 RUN $software/bin/conda-v4.12/bin/conda install -y jellyfish -c bioconda
@@ -118,7 +119,7 @@ RUN pip3 install km-walk \
 
 # Annovar 2017-07-17
 WORKDIR $software/source
-RUN git clone http://github.com/yqyuhao/righton_service.git && cd righton_service && unzip annovar_2017-07-17.zip && cd annovar && cp *.pl $software/bin
+RUN git clone https://github.com/yqyuhao/righton_service.git && cd righton_service && unzip annovar_2017-07-17.zip && cd annovar && cp *.pl $software/bin
 
 # IGVtools v2.15.1
 WORKDIR $software/source
@@ -145,7 +146,8 @@ RUN git clone https://github.com/xjtu-omics/msisensor-pro.git \
 
 # copy esssential files
 WORKDIR $software/source
-RUN cd righton_service && cp fastq2stat.pl capture_analysis_auto capture_filter_auto capture_filter_auto_wes drug_split msisensor_pro tmb_filter PCR_analysis_auto pcr_filter_auto drug_split msisensor_pro tmb_filter unique_panel.R $software/bin/
+RUN cd righton_service && cp -f fastq2stat.pl capture_analysis_auto capture_filter_auto capture_filter_auto_wes drug_split msisensor_pro tmb_filter PCR_analysis_auto pcr_filter_auto drug_split msisensor_pro tmb_filter unique_panel.R $software/bin/
+RUN cp A387V2_20220713.bed A215V1-20201023.bed Righton_Drug_Site_hg19.database $software/target/
 
 # install essential packages
 WORKDIR $software/source
