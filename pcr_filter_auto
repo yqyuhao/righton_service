@@ -1053,11 +1053,12 @@ database_dir=$Righton/database
 merge_dir=$database_dir/ref/merge
 capture_black=$database_dir/ref/capture_black
 pcr_black=$database_dir/ref/pcr_black
-bam_round=$database_dir/ref/bam
+bam_round_all=$database_dir/ref/bam
 snp_black_dir=$database_dir/ref/snp_black
 
 # define ref files
-black=$database_dir/ref/black_new.xls
+black_new=$database_dir/ref/black_new.xls
+black_old=$database_dir/ref/black_old.xls
 black_add=$database_dir/ref/black_add.xls
 white_hotpos=$database_dir/ref/white_hotpos.xls
 white_snp=$database_dir/ref/white_snp.xls
