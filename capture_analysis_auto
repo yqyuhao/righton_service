@@ -42,11 +42,11 @@ lianti=$bin_dir/lianti
 annovar=$bin_dir/table_annovar.pl
 fastqc=$bin_dir/fastqc
 bedtools=$bin_dir/bedtools
-snpEff=$bin_dir/snpEff
+snpEff=$bin_dir/snpEff/snpEff.jar
 bcftools=$$bin_dir/bcftools
 delly=$bin_dir/delly
 genefuse=$bin_dir/GeneFuse
-km=$Righton/software/km/bin/km
+km=$bin_dir/km
 
 export PATH="${R_bin}:$PATH"
 #####Programs Usage################
@@ -384,25 +384,25 @@ function lianti_Analysis()
 	echo -ne "${i}\t${bed}\t$average_coverage\t$Reads_capture_rate\t$Accurate_mapping_rate\t$Uniformity\t$coverage_1x_rate\t" >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${fq11/.gz/}.stat|awk '$0~/Total Base Length:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${fq11/.gz/}.stat|awk '$0~/Q30 Base:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
-	cat $sample_dir/${fq11/.gz/}.stat|awk '$0~/Q30\%:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
+	cat $sample_dir/${fq11/.gz/}.stat|awk '$0~/Q30\%:/{split($0,a,":");printf("%0.2f%%\t",a[2])}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${fq11/.gz/}.stat|awk '$0~/Q20 Base:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
-	cat $sample_dir/${fq11/.gz/}.stat|awk '$0~/Q20\%:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
+	cat $sample_dir/${fq11/.gz/}.stat|awk '$0~/Q20\%:/{split($0,a,":");printf("%0.2f%%\t",a[2])}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${fq22/.gz/}.stat|awk '$0~/Total Base Length:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${fq22/.gz/}.stat|awk '$0~/Q30 Base:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
-	cat $sample_dir/${fq22/.gz/}.stat|awk '$0~/Q30\%:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
+	cat $sample_dir/${fq22/.gz/}.stat|awk '$0~/Q30\%:/{split($0,a,":");printf("%0.2f%%\t",a[2])}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${fq22/.gz/}.stat|awk '$0~/Q20 Base:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
-	cat $sample_dir/${fq22/.gz/}.stat|awk '$0~/Q20\%:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
+	cat $sample_dir/${fq22/.gz/}.stat|awk '$0~/Q20\%:/{split($0,a,":");printf("%0.2f%%\t",a[2])}' >>$sample_dir/${i}.Sequencing.QC.xls
 	######Clean Data####
 	cat $sample_dir/${i}.paired.R1.fastq.stat|awk '$0~/Total Base Length:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${i}.paired.R1.fastq.stat|awk '$0~/Q30 Base:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
-	cat $sample_dir/${i}.paired.R1.fastq.stat|awk '$0~/Q30\%:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
+	cat $sample_dir/${i}.paired.R1.fastq.stat|awk '$0~/Q30\%:/{split($0,a,":");printf("%0.2f%%\t",a[2])}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${i}.paired.R1.fastq.stat|awk '$0~/Q20 Base:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
-	cat $sample_dir/${i}.paired.R1.fastq.stat|awk '$0~/Q20\%:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
+	cat $sample_dir/${i}.paired.R1.fastq.stat|awk '$0~/Q20\%:/{split($0,a,":");printf("%0.2f%%\t",a[2])}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${i}.paired.R2.fastq.stat|awk '$0~/Total Base Length:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${i}.paired.R2.fastq.stat|awk '$0~/Q30 Base:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
-	cat $sample_dir/${i}.paired.R2.fastq.stat|awk '$0~/Q30\%:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
+	cat $sample_dir/${i}.paired.R2.fastq.stat|awk '$0~/Q30\%:/{split($0,a,":");printf("%0.2f%%\t",a[2])}' >>$sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${i}.paired.R2.fastq.stat|awk '$0~/Q20 Base:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
-	cat $sample_dir/${i}.paired.R2.fastq.stat|awk '$0~/Q20\%:/{split($0,a,":");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls
+	cat $sample_dir/${i}.paired.R2.fastq.stat|awk '$0~/Q20\%:/{split($0,a,":");printf("%0.2f%%\t",a[2])}' >>$sample_dir/${i}.Sequencing.QC.xls
 
 	######Mapping Data####
 	cat $sample_dir/${i}.stat|awk '$0~/average length:/{split($0,a,"\t");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls            #Average_read_length
@@ -411,7 +411,7 @@ function lianti_Analysis()
 	
 	echo -ne "$Duplication_rate\t" >>$sample_dir/${i}.Sequencing.QC.xls 
 	echo -ne $Raw_reads"\t" >> $sample_dir/${i}.Sequencing.QC.xls
-	echo -ne $Raw_reads"\t" >> $sample_dir/${i}.Sequencing.QC.xls
+	echo -ne $Raw_bases"\t" >> $sample_dir/${i}.Sequencing.QC.xls
 	echo -ne $Clean_reads"\t" >> $sample_dir/${i}.Sequencing.QC.xls
 	echo -ne $Clean_bases"\t" >> $sample_dir/${i}.Sequencing.QC.xls
 	cat $sample_dir/${i}.stat|awk '$0~/reads mapped:/{split($0,a,"\t");printf a[2]"\t"}' >>$sample_dir/${i}.Sequencing.QC.xls               #Mapped reads
