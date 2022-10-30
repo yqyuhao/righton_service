@@ -27,7 +27,7 @@ ENV software /Righton_software
 
 # create software folder
 
-RUN mkdir -p /data/RightonAuto/analysis /data/RightonAuto/config $software/database $software/source $software/target $software/bin
+RUN mkdir -p /data/RightonAuto/analysis /data/RightonAuto/results $software/database $software/source $software/target $software/bin
 
 # fastp v0.22.0
 WORKDIR $software/source
@@ -112,6 +112,9 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-py37_4.12.0-Linux-x86_64
 # jellyfish
 RUN $software/bin/conda-v4.12/bin/conda install -y jellyfish -c bioconda
 
+# ncbi-blast
+RUN $software/bin/conda-v4.12/bin/conda install -y blast -c bioconda
+
 # km
 WORKDIR $software/source
 RUN $software/bin/conda-v4.12/bin/pip3 install km-walk \
@@ -144,9 +147,13 @@ WORKDIR $software/source
 RUN apt install -y libhts-dev && git clone https://github.com/xjtu-omics/msisensor-pro.git \
 && ln -s $software/source/msisensor-pro $software/bin/msisensor-pro
 
+# R dplyr 
+RUN Rscript -e "install.packages(c('tidyr','dplyr'))"
+
 # copy esssential files
 WORKDIR $software/source
 RUN cd righton_service && cp -f fastq2stat.pl capture_analysis_auto capture_filter_auto capture_filter_auto_wes drug_split msisensor_pro tmb_filter PCR_analysis_auto pcr_filter_auto drug_split msisensor_pro tmb_filter unique_panel.R $software/bin/
+
 WORKDIR $software/source
 RUN cd righton_service && cp A387V2_20220713.bed A215V1-20201023.bed Righton_Drug_Site_hg19.database $software/target/
 

@@ -1,35 +1,31 @@
-#!/bin/bash
-set +x
-########################################################################################
-Righton=/Righton_software
-# define the directory
-target_dir=$Righton/target
+#!/usr/bin/bash
 
-config=$1
-path=$2
-TMB=$path/TMB
-mkdir -p $TMB
-for i in `cat $config|cut -f1 -d','|sort|uniq ` ;do
+########################################################################################
+
+mkdir -p TMB
+for i in `cat config*.csv|cut -f1 -d','|sort|uniq ` ;do
 sample=$i
+Righton=/Righton_software
+target_dir=$Righton/target
 bed=`cat config*.csv|grep "$sample"|head -1|cut -f2 -d',' `
 panel_size=` cat $target_dir/$bed | \
     awk 'BEGIN{SUM=0} {SUM+=$3-$2} END{print SUM/1000000}' `
 if [ $? -ne 0 ];then echo -e "\n[ERROR] Could not find BED files '!'\n" && exit 1 ;fi
 
 head -1 filter02/${sample}.longwang.xls   \
-    > $TMB/${sample}.hg19_multianno.TMB.filter.xls
+    > TMB/${sample}.hg19_multianno.TMB.filter.xls
 cat filter02/${sample}.longwang.xls   | \
     awk -F "\t" '{OFS="\t"; if($9!="."){print $0} }'   | \
     awk -F "\t" '{OFS="\t"; if($64 >=25){print $0} }'   | \
     awk -F "\t" '{OFS="\t"; if($65>=0.05){print $0} }'   | \
     awk -F "\t" '{OFS="\t"; if(($49<=0.01)||($49==".")){print $0} }'   | \
     awk -F "\t" '{OFS="\t"; if(($64 * $65) >= 3){print $0}}'   \
-    >> $TMB/${sample}.hg19_multianno.TMB.filter.xls
+    >> TMB/${sample}.hg19_multianno.TMB.filter.xls
 
 awk -v size=$panel_size -v name=$sample -v bed=$bed 'END{print name"\t"(NR-1)/size"\t"size"\t"bed }'  \
-    $TMB/${sample}.hg19_multianno.TMB.filter.xls  | \
+    TMB/${sample}.hg19_multianno.TMB.filter.xls  | \
     sed "1s/^/SampleID\tTMB (mut\/M)\tPanelSize(M)\tbed files\n/"  \
-    > $TMB/${sample}.hg19_multianno.TMB.value.txt 
+    > TMB/${sample}.hg19_multianno.TMB.value.txt 
 done
 
 #########################################################################################
