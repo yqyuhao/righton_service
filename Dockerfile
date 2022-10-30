@@ -141,7 +141,7 @@ RUN wget https://github.com/dellytools/delly/releases/download/v0.8.7/delly_v0.8
 
 # msisensor_pro
 WORKDIR $software/source
-RUN git clone https://github.com/xjtu-omics/msisensor-pro.git \
+RUN apt install -y libhts-dev && git clone https://github.com/xjtu-omics/msisensor-pro.git \
 && ln -s $software/source/msisensor-pro $software/bin/msisensor-pro
 
 # copy esssential files

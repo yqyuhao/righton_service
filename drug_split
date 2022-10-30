@@ -52,6 +52,7 @@ done
 # define the environment software
 Righton=/Righton_software
 bin_dir=$Righton/bin
+database_dir=$Righton/database
 rscript=/usr/bin/Rscript
 igvtools=$bin_dir/IGVTools/igvtools
 target_dir=$Righton/target

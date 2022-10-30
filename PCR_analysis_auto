@@ -166,7 +166,7 @@ function lianti_Analysis()
 	
 	############KM FLT3-ITD#################
 
-	#km-flt3 $sample_dir $i $fq1 $fq2 &
+	km-flt3 $sample_dir $i $fq1 $fq2 &
 	
 	############CALR FLT3#################
 	{
@@ -469,7 +469,7 @@ echo 基础call突变结束：`date`
 find $PWD -name "*.Sequencing.QC.xls" -type f |sort -u|xargs -n 1 cat |sort -u > $qc/Rightongene.Sequencing.QC.xls
 $bin_dir/drug_split -f $config -i $outputF &
 $bin_dir/msisensor_pro -f $config -i $outputF &
-$bin_dir/pcr_filter_auto.sh -f $config -i $outputF -t $Machine
+$bin_dir/pcr_filter_auto -f $config -i $outputF -t $Machine
 cd $outputF && bash $bin_dir/tmb_filter
 touch $outputF/analysis.ok
 echo 突变过滤结束：`date`
