@@ -121,10 +121,10 @@ RUN pip3 install km-walk \
 WORKDIR $software/source
 RUN git clone https://github.com/yqyuhao/righton_service.git && cd righton_service && unzip annovar_2017-07-17.zip && cd annovar && cp *.pl $software/bin
 
-# IGVtools v2.15.1
+# IGVtools v2.3.95
 WORKDIR $software/source
-RUN wget https://data.broadinstitute.org/igv/projects/downloads/2.15/IGV_2.15.1.zip -O $software/source/IGV_2.15.1.zip \
-&& unzip IGV_2.15.1.zip && ln -s $software/source/IGV_2.15.1 $software/bin/IGVTools
+RUN wget https://data.broadinstitute.org/igv/projects/downloads/2.3/igvtools_2.3.95.zip -O $software/source/igvtools_2.3.95.zip \
+&& unzip igvtools_2.3.95.zip && ln -s $software/source/IGVTools $software/bin/IGVTools
 
 # bcftools v1.8
 WORKDIR $software/source
