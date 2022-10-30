@@ -21,7 +21,7 @@ RUN apt-get update \
 && apt-get install -y zlib1g-dev libjpeg-dev libncurses5-dev libbz2-dev liblzma-dev libcurl4-gnutls-dev \
  
 # python3 perl java r-base
-&& apt-get install -y python3 python3-dev python3-pip python perl openjdk-8-jdk r-base r-base-dev
+&& apt-get install -y python3 python3-dev python3-pip python perl openjdk-8-jdk r-base r-base-dev bc
 
 ENV software /Righton_software
 
@@ -114,8 +114,8 @@ RUN $software/bin/conda-v4.12/bin/conda install -y jellyfish -c bioconda
 
 # km
 WORKDIR $software/source
-RUN pip3 install km-walk \
-&& ln -s /usr/local/bin/km $software/bin/km
+RUN $software/bin/conda-v4.12/bin/pip3 install km-walk \
+&& ln -s $software/bin/conda-v4.12/bin/km $software/bin/km
 
 # Annovar 2017-07-17
 WORKDIR $software/source
