@@ -7,6 +7,7 @@ Righton=/Righton_software
 bin_dir=$Righton/bin
 
 # define the directory
+result_dir=/data/RightonAuto/results
 target_dir=$Righton/target
 database_dir=$Righton/database
 genelist_dir=$database_dir/genelist
@@ -112,6 +113,16 @@ function km-flt3()
 	cat $sample_dir/km/${i}.hg19_multianno.txt|awk 'BEGIN{FS="\t";OFS="\t"} {split($93,b,"ANN=");Depth=$92;if(Depth>0){Rate=$91;print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12"\t"$13"\t"Rate"\t"$53"\t"$14"\t"$15"\t"$16"\t"$17"\t"$18"\t"$19"\t"$20"\t"$21"\t"$22"\t"$23"\t"$24"\t"$25"\t"$26"\t"$27"\t"$28"\t"$29"\t"$30"\t"$31"\t"$32"\t"$33"\t"$34"\t"$35"\t"$36"\t"$37"\t"$38"\t"$39"\t"$40"\t"$41"\t"$42"\t"$43"\t"$44"\t"".""\t"".""\t"$45"\t"$46"\t"$47"\t"$48"\t"$49"\t"$50"\t"$51"\t"$52"\t"".""\t"".""\t"".""\t"".""\t"".""\t"".""\t"".""\t"Depth"\t"Rate"\t"b[2]"\t"$54"\t"".""\t"".""\t"}}' | awk 'BEGIN {FS="\t";OFS="\t"} {n=split($66,a,",");s="";if($6=="splicing"||$6=="UTR5"||$6=="intronic"){for(i=1;i<=n;i++){split(a[i],b,"|");split(b[9],e,"/");t=b[4]":"b[7]":exon"e[1]":"b[10]":.";s=t","s}} else {for(i=1;i<=n;i++){split(a[i],b,"|");split(b[9],e,"/");if(b[11]!=""){t=b[4]":"b[7]":exon"e[1]":"b[10]":"b[11];s=t","s}}};$66=s;print $0}'| awk 'BEGIN {FS="\t";OFS="\t"} {a=$66;$66=$10;$10=a;print $0}'|awk 'BEGIN {FS="\t";OFS="\t"} {if($10=="."||$10==""){$10=$8};if($10=="."||$10==""){$10=$66};print $0}'| awk 'BEGIN {FS=OFS="\t"} {if(($9=="stoploss"||$9=="stopgain")&&$10~/fs/){if($5=="-"){$9="frameshift deletion"};if($4=="-"){$9="frameshift insertion"};print $0} else {print $0}}'| awk 'BEGIN {FS=OFS="\t"} {s="";if($7=="FLT3"){n=split($10,a,",");for(i=1;i<n;i++){if(a[i]~/NM_004119/&&a[i]~/exon20/){a[i]=a[i]" TKD"};if(($4=="-")&&(a[i]~/NM_004119/)&&(a[i]~/exon14/||a[i]~/exon15/)){a[i]=a[i]" ITD"};s=a[i]","s};$10=s};print $0}'| awk 'BEGIN {FS=OFS="\t"} {$66=$10;gsub(/Ala/,"A",$66);gsub(/Arg/,"R",$66);gsub(/Asp/,"D",$66);gsub(/Cys/,"C",$66);gsub(/Gln/,"Q",$66);gsub(/Glu/,"E",$66);gsub(/His/,"H",$66);gsub(/Ile/,"I",$66);gsub(/Gly/,"G",$66);gsub(/Asn/,"N",$66);gsub(/Leu/,"L",$66);gsub(/Lys/,"K",$66);gsub(/Met/,"M",$66);gsub(/Phe/,"F",$66);gsub(/Pro/,"P",$66);gsub(/Ser/,"S",$66);gsub(/Thr/,"T",$66);gsub(/Trp/,"W",$66);gsub(/Tyr/,"Y",$66);gsub(/Val/,"V",$66);print $0}'>>$sample_dir/km/${i}.FLT3_ITD.xls
 }
 export -f km-flt3
+function transfer_result()
+{
+	i=$1
+	mkdir -p /data/RightonAuto/results/${i}
+	sample_dir=$PWD/${i}
+	\cp -f $sample_dir/${i}.ready.bam $sample_dir/${i}.ready.bam.bai $sample_dir/QC/${i}.Sequencing.QC.xls $sample_dir/Mutation/${i}.snp_report.ready.database $sample_dir/Mutation/${i}.ready.lianti-1.vcf $result_dir/${i}/
+	mv $result_dir/${i}/${i}.snp_report.ready.database $result_dir/${i}/${i}.snp_report_mutation.ready.database
+	mv $result_dir/${i}/${i}.ready.lianti-1.vcf $result_dir/${i}/${i}.ready.vcf
+	touch $result_dir/${i}/transfer,ok
+}
 function lianti_Analysis()
 {
 	i=$1
@@ -378,7 +389,7 @@ do
 	exit 0
 	;;
 	v)
-	echo v2021-01-01
+	echo v2022-10-01
 	exit 0
 	;;
 	?)
@@ -407,11 +418,9 @@ mkdir -p $bam_file
 mkdir -p $qc
 echo "Analysis_Path=$PWD"
 echo Work started at `date`
-echo "CPU核心数为：$Ncpu_all"
 ###############################################################
 #config
 ###############################################################
-echo 基础call突变开始：`date`
 echo "Command=`basename $0` -f $config -i $inputF -o $outputF -t $Machine"
 #Sample information
 #Barcode,Target
@@ -454,7 +463,7 @@ if [ -d $inputF ];then
 		echo >&80
 	done
 	for ((j=0;j<=$((${#sample_target[*]}-1));j++))
-    do
+    	do
 		read -u 80
 		{
 			lianti_Analysis "${sample[$j]}"
@@ -464,13 +473,15 @@ if [ -d $inputF ];then
 	wait
 	exec 80>&-
 fi
-echo 基础call突变结束：`date`
 #############trash########################
 find $PWD -name "*.Sequencing.QC.xls" -type f |sort -u|xargs -n 1 cat |sort -u > $qc/Rightongene.Sequencing.QC.xls
 $bin_dir/drug_split -f $config -i $outputF &
 $bin_dir/msisensor_pro -f $config -i $outputF &
 $bin_dir/pcr_filter_auto -f $config -i $outputF -t $Machine
+for ((j=0;j<=$((${#sample_target[*]}-1));j++))
+do
+	transfer_result "${sample[$j]}"
+done
 cd $outputF && bash $bin_dir/tmb_filter
 touch $outputF/analysis.ok
-echo 突变过滤结束：`date`
 echo "Analysis Work finished at `date`"
