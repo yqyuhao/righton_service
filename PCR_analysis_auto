@@ -121,7 +121,7 @@ function transfer_result()
 	\cp -f $sample_dir/${i}.ready.bam $sample_dir/${i}.ready.bam.bai $sample_dir/QC/${i}.Sequencing.QC.xls $sample_dir/Mutation/${i}.snp_report.ready.database $sample_dir/Mutation/${i}.ready.lianti-1.vcf $result_dir/${i}/
 	mv $result_dir/${i}/${i}.snp_report.ready.database $result_dir/${i}/${i}.snp_report_mutation.ready.database
 	mv $result_dir/${i}/${i}.ready.lianti-1.vcf $result_dir/${i}/${i}.ready.vcf
-	touch $result_dir/${i}/transfer,ok
+	touch $result_dir/${i}/transfer.ok
 }
 function lianti_Analysis()
 {
