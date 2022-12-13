@@ -203,7 +203,7 @@ function lianti_Analysis()
 	perl $bin_dir/fastq2stat.pl $sample_dir/$fq11 & \
 	perl $bin_dir/fastq2stat.pl $sample_dir/$fq22 & \
 	
-	$bwa mem -t $Ncpu -M -R "@RG\tID:${i}\tSM:${i}\tPL:ILLUMINA" $hg19 $sample_dir/${i}.paired.R1.fastq $sample_dir/${i}.paired.R2.fastq | $samtools view -q 10 -F 4 -@ $Ncpu -hb - > $sample_dir/${i}.bam
+	$bwa mem -t $Ncpu -M -R "@RG\tID:${i}\tSM:${i}\tPL:ILLUMINA" $ref $sample_dir/${i}.paired.R1.fastq $sample_dir/${i}.paired.R2.fastq | $samtools view -q 10 -F 4 -@ $Ncpu -hb - > $sample_dir/${i}.bam
 	
 	$gatk SortSam -I $sample_dir/${i}.bam -O $sample_dir/${i}.sort.bam -SO coordinate && $samtools index $sample_dir/${i}.sort.bam
 	
