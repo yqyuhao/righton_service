@@ -86,13 +86,6 @@ RUN wget -c https://nchc.dl.sourceforge.net/project/snpeff/snpEff_v4_3t_core.zip
 && sed -i '17s#\.\/#/Righton_software/database/snpEff_hg19/#g' $software/source/snpEff_v4_3t/snpEff.config \
 && ln -s $software/source/snpEff_v4_3t $software/bin/snpEff
 
-# cnvkit v0.9.9
-WORKDIR $software/source
-RUN wget -c https://github.com/etal/cnvkit/archive/refs/tags/v0.9.9.tar.gz -O $software/source/cnvkit.v0.9.9.tar.gz \
-&& tar -zxvf $software/source/cnvkit.v0.9.9.tar.gz \
-&& pip3 install -e $software/source/cnvkit-0.9.9 -i https://mirrors.aliyun.com/pypi/simple \
-&& ln -s /usr/local/bin/cnvkit.py $software/bin/cnvkit.py
-
 # genefuse v0.6.1
 WORKDIR $software/source
 RUN wget https://github.com/OpenGene/GeneFuse/archive/refs/tags/v0.6.1.tar.gz -O $software/source/genefuse-v0.6.1.tar.gz \
@@ -108,6 +101,10 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-py37_4.12.0-Linux-x86_64
 && $software/bin/conda-v4.12/bin/conda config --add channels r \
 && $software/bin/conda-v4.12/bin/conda config --add channels bioconda \
 && $software/bin/conda-v4.12/bin/conda install -y pindel -c bioconda
+
+# cnvkit v0.9.9
+WORKDIR $software/source
+RUN $software/bin/conda-v4.12/bin/conda install -y cnvkit -c bioconda
 
 # jellyfish
 RUN $software/bin/conda-v4.12/bin/conda install -y jellyfish -c bioconda
