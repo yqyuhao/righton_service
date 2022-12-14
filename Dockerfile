@@ -146,7 +146,6 @@ RUN apt install -y libhts-dev && git clone https://github.com/xjtu-omics/msisens
 
 # R dplyr 
 RUN Rscript -e "install.packages(c('tidyr','dplyr'))"
-RUN Rscript -e "BiocManager::install('DNAcopy')"
 
 # copy esssential files
 WORKDIR $software/source
